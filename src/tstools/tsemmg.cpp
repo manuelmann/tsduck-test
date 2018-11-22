@@ -306,7 +306,8 @@ EMMGOptions::EMMGOptions(int argc, char *argv[]) :
     // Load sections from input files.
     for (auto it = inputFiles.begin(); it != inputFiles.end(); ++it) {
         ts::SectionFile file;
-        if (file.load(*it, *this, ts::SectionFile::UNSPECIFIED, ts::CRC32::CHECK)) {
+        file.setCRCValidation(ts::CRC32::CHECK);
+        if (file.load(*it, *this)) {
             sections.insert(sections.end(), file.sections().begin(), file.sections().end());
         }
     }
@@ -480,7 +481,7 @@ int MainCode(int argc, char *argv[])
                         opt.sectionMode,
                         channelStatus,
                         streamStatus,
-                        0,
+                        nullptr,
                         opt.logger))
     {
         return EXIT_FAILURE;

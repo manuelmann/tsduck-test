@@ -67,6 +67,7 @@ namespace ts {
         bool            _dump_nal_units;
         bool            _dump_avc_sei;
         std::bitset<32> _nal_unit_filter;
+        std::set<uint32_t>   _sei_type_filter;
         std::list<ByteBlock> _sei_uuid_filter;
         bool            _video_attributes;
         bool            _audio_attributes;
@@ -118,6 +119,7 @@ ts::PESPlugin::PESPlugin(TSP* tsp_) :
     _dump_nal_units(false),
     _dump_avc_sei(false),
     _nal_unit_filter(),
+    _sei_type_filter(),
     _sei_uuid_filter(),
     _video_attributes(false),
     _audio_attributes(false),
@@ -192,8 +194,8 @@ ts::PESPlugin::PESPlugin(TSP* tsp_) :
     help(u"payload", u"Dump PES packet payload.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"PID filter: select packets with this PID value (default: all PID's "
+    help(u"pid", u"pid1[-pid2]",
+         u"PID filter: select packets with these PID values (default: all PID's "
          u"containing PES packets). Several -p or --pid options may be specified.");
 
     option(u"sei-avc");
@@ -204,6 +206,12 @@ ts::PESPlugin::PESPlugin(TSP* tsp_) :
 
     option(u"trace-packets", 't');
     help(u"trace-packets", u"race all PES packets.");
+
+    option(u"sei-type", 0, UINT32);
+    help(u"sei-type",
+         u"SEI type filter: with --sei-avc, select SEI access units with this "
+         u"type (default: all SEI access units). Several --sei-type options "
+         u"may be specified.");
 
     option(u"uuid-sei", 0, STRING, 0, UNLIMITED_COUNT);
     help(u"uuid-sei",
@@ -254,7 +262,7 @@ bool ts::PESPlugin::start()
     // PID values to filter
     if (present(u"pid")) {
         PIDSet pids;
-        getPIDSet(pids, u"pid");
+        getIntValues(pids, u"pid");
         if (present(u"negate-pid")) {
             pids.flip();
         }
@@ -279,6 +287,9 @@ bool ts::PESPlugin::start()
             _nal_unit_filter.flip();
         }
     }
+
+    // SEI types to filter
+    getIntValues(_sei_type_filter, u"sei-type");
 
     // SEI UUID's to filter.
     const size_t uuid_count = count(u"uuid-sei");
@@ -497,7 +508,7 @@ void ts::PESPlugin::handleAVCAccessUnit(PESDemux&, const PESPacket& pkt, uint8_t
 
 void ts::PESPlugin::handleSEI(PESDemux& demux, const PESPacket& pkt, uint32_t sei_type, size_t offset, size_t size)
 {
-    if ( !_dump_avc_sei) {
+    if (!_dump_avc_sei || (!_sei_type_filter.empty() && _sei_type_filter.find(sei_type) == _sei_type_filter.end())) {
         return;
     }
 

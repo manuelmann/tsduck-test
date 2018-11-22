@@ -38,8 +38,13 @@
 #include "tsSectionDemux.h"
 #include "tsCyclingPacketizer.h"
 #include "tsNames.h"
-#include "tsTables.h"
 #include "tsEITProcessor.h"
+#include "tsCADescriptor.h"
+#include "tsPAT.h"
+#include "tsPMT.h"
+#include "tsSDT.h"
+#include "tsBAT.h"
+#include "tsNIT.h"
 TSDUCK_SOURCE;
 
 
@@ -505,6 +510,9 @@ void ts::SVRemovePlugin::processNITBAT(AbstractTransportListTable& table)
     for (AbstractTransportListTable::TransportMap::iterator it = table.transports.begin(); it != table.transports.end(); ++it) {
         processNITBATDescriptorList(it->second.descs);
     }
+
+    // No need to get the same section layout as input.
+    table.clearPreferredSections();
 }
 
 

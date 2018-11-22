@@ -55,6 +55,7 @@ namespace ts {
 
     private:
         bool                _ignoreErrors;  // Ignore encapsulation errors.
+        bool                _pack;          // Outer packet packing option.
         size_t              _maxBuffered;   // Max buffered packets.
         PID                 _pidOutput;     // Output PID.
         PID                 _pidPCR;        // PCR reference PID.
@@ -79,6 +80,7 @@ TSPLUGIN_DECLARE_PROCESSOR(encap, ts::EncapPlugin)
 ts::EncapPlugin::EncapPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Encapsulate packets from several PID's into one single PID", u"[options]"),
     _ignoreErrors(false),
+    _pack(false),
     _maxBuffered(0),
     _pidOutput(PID_NULL),
     _pidPCR(PID_NULL),
@@ -110,7 +112,14 @@ ts::EncapPlugin::EncapPlugin(TSP* tsp_) :
          u"Specify a reference PID containing PCR's. The output PID will contain PCR's, "
          u"based on the same clock. By default, the output PID does not contain any PCR.");
 
-    option(u"pid", 'p', STRING, 1, UNLIMITED_COUNT);
+    option(u"pack");
+    help(u"pack",
+         u"Emit outer packets when they are full only. By default, emit outer packets "
+         u"as soon as possible, when null packets are available on input. With the default "
+         u"behavior, inner packets are decapsulated with a better time accuracy, at the expense "
+         u"of a higher bitrate of the outer PID when there are many null packets in input.");
+
+    option(u"pid", 'p', INTEGER, 1, UNLIMITED_COUNT, 0, PID_NULL - 1);
     help(u"pid", u"pid1[-pid2]",
          u"Specify an input PID or range of PID's to encapsulate. "
          u"Several --pid options can be specified. "
@@ -125,35 +134,11 @@ ts::EncapPlugin::EncapPlugin(TSP* tsp_) :
 bool ts::EncapPlugin::getOptions()
 {
     _ignoreErrors = present(u"ignore-errors");
+    _pack = present(u"pack");
     _maxBuffered = intValue<size_t>(u"max-buffered-packets", PacketEncapsulation::DEFAULT_MAX_BUFFERED_PACKETS);
     _pidOutput = intValue<PID>(u"output-pid", PID_NULL);
     _pidPCR = intValue<PID>(u"pcr-pid", PID_NULL);
-
-    // Get all PID ranges.
-    _pidsInput.reset();
-    for (size_t i = 0; i < count(u"pid"); ++i) {
-        const UString val(value(u"pid", u"", i));
-        PID pid1 = 0;
-        PID pid2 = 0;
-        size_t count = 0;
-        size_t last = 0;
-        // Correct value if we either extract one value or the complete format is matched.
-        bool ok = (val.scan(count, last, u"%d-%d", {&pid1, &pid2}) || count == 1) &&
-            // And then the values must be in range
-            ((count == 1 && pid1 < PID_NULL) || (count == 2 && pid2 < PID_NULL && pid1 <= pid2));
-        if (!ok) {
-            tsp->error(u"invalid PID range: %s", {val});
-            return false;
-        }
-        if (count == 1) {
-            _pidsInput.set(pid1);
-        }
-        else {
-            while (pid1 <= pid2) {
-                _pidsInput.set(pid1++);
-            }
-        }
-    }
+    getIntValues(_pidsInput, u"pid");
 
     return true;
 }
@@ -166,6 +151,7 @@ bool ts::EncapPlugin::getOptions()
 bool ts::EncapPlugin::start()
 {
     _encap.reset(_pidOutput, _pidsInput, _pidPCR);
+    _encap.setPacking(_pack);
     _encap.setMaxBufferedPackets(_maxBuffered);
     return true;
 }

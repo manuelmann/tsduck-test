@@ -264,11 +264,6 @@ namespace ts {
             //! @param [in] etid Externded table id.
             //!
             ETIDContext(const ETID& etid = ETID());
-
-            //!
-            //! Destructor.
-            //!
-            ~ETIDContext();
         };
 
         //!
@@ -357,11 +352,6 @@ namespace ts {
             PIDContext(PID pid, const UString& description = UNREFERENCED);
 
             //!
-            //! Destructor.
-            //!
-            ~PIDContext();
-
-            //!
             //! Register a service id for the PID.
             //! @param [in] service_id A service id which references the PID.
             //!
@@ -416,6 +406,10 @@ namespace ts {
         size_t      _global_scr_pids;    //!< Number of scrambled global PID's.
         uint64_t    _global_pkt_cnt;     //!< Number of packets in global PID's.
         uint32_t    _global_bitrate;     //!< Bitrate for global PID's.
+        size_t      _psisi_pid_cnt;      //!< Number of global PSI/SI PID's (0x00 to 0x1F).
+        size_t      _psisi_scr_pids;     //!< Number of scrambled global PSI/SI PID's (normally zero).
+        uint64_t    _psisi_pkt_cnt;      //!< Number of packets in global PSI/SI PID's.
+        uint32_t    _psisi_bitrate;      //!< Bitrate for global PSI/SI PID's.
         size_t      _unref_pid_cnt;      //!< Number of unreferenced PID's.
         size_t      _unref_scr_pids;     //!< Number of scrambled unreferenced PID's.
         uint64_t    _unref_pkt_cnt;      //!< Number of packets in unreferenced PID's.
@@ -466,13 +460,13 @@ namespace ts {
         // Analyse a list of descriptors.
         // If svp is not 0, we are in the PMT of the specified service.
         // If ps is not 0, we are in the description of this PID in a PMT.
-        void analyzeDescriptors(const DescriptorList& descs, ServiceContext* svp = 0, PIDContext* ps = 0);
+        void analyzeDescriptors(const DescriptorList& descs, ServiceContext* svp = nullptr, PIDContext* ps = nullptr);
 
         // Analyse one CA descriptor, either from the CAT or a PMT.
         // If svp is not 0, we are in the PMT of the specified service.
         // If ps is not 0, we are in the description of this PID in a PMT.
         // If svp is 0, we are in the CAT.
-        void analyzeCADescriptor(const Descriptor& desc, ServiceContext* svp = 0, PIDContext* ps = 0);
+        void analyzeCADescriptor(const Descriptor& desc, ServiceContext* svp = nullptr, PIDContext* ps = nullptr);
 
         // Implementation of TableHandlerInterface
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;

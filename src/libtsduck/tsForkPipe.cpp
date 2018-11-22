@@ -34,6 +34,7 @@
 #include "tsForkPipe.h"
 #include "tsNullReport.h"
 #include "tsMemoryUtils.h"
+#include "tsIntegerUtils.h"
 TSDUCK_SOURCE;
 
 // Index of pipe file descriptors on UNIX.
@@ -322,7 +323,7 @@ bool ts::ForkPipe::open(const UString& command, WaitMode wait_mode, size_t buffe
         // In the context of the created process (or application if EXIT_PROCESS mode).
         // In the first case, abort on error. In the latter, report error and return to caller.
         int error = 0;
-        const char* message = 0;
+        const char* message = nullptr;
 
         // Setup stdin.
         switch (in_mode) {
@@ -404,8 +405,8 @@ bool ts::ForkPipe::open(const UString& command, WaitMode wait_mode, size_t buffe
         }
 
         // Execute the command if there was no prior error.
-        if (message == 0) {
-            ::execl("/bin/sh", "/bin/sh", "-c", command.toUTF8().c_str(), TS_NULL);
+        if (message == nullptr) {
+            ::execl("/bin/sh", "/bin/sh", "-c", command.toUTF8().c_str(), nullptr);
             // Should not return, so this is an error if we get there.
             error = errno;
             message = "exec error";
@@ -475,7 +476,7 @@ bool ts::ForkPipe::close(Report& report)
 
     // Wait for termination of forked process
     assert(_fpid != 0);
-    if (_wait_mode == SYNCHRONOUS && ::waitpid(_fpid, NULL, 0) < 0) {
+    if (_wait_mode == SYNCHRONOUS && ::waitpid(_fpid, nullptr, 0) < 0) {
         report.error(u"error waiting for process termination: %s", {ErrorCodeMessage()});
         result = false;
     }
@@ -620,6 +621,18 @@ bool ts::ForkPipe::read(void* addr, size_t max_size, size_t unit_size, size_t& r
         // Already at end of file. Do not report error.
         return false;
     }
+    if (max_size == 0) {
+        // Trivial case, successfully read zero bytes.
+        return true;
+    }
+    if (unit_size > 0 && max_size < unit_size) {
+        report.error(u"internal error, buffer (%'d bytes) is smaller than unit size (%'d bytes)", {max_size, unit_size});
+        return false;
+    }
+    if (unit_size > 0) {
+        // Round down buffer size to a multiple of unit size.
+        max_size = RoundDown(max_size, unit_size);
+    }
 
     ErrorCode error_code = SYS_SUCCESS;
 
@@ -636,28 +649,23 @@ bool ts::ForkPipe::read(void* addr, size_t max_size, size_t unit_size, size_t& r
             insize = std::max(::DWORD(0), insize);  // just in case we got a negative value
             ret_size += insize;
             data += insize;
-            remain -= std::max(remain, insize);
+            remain -= std::min(remain, insize);
             // Exit when we read an integral number of "units" or the buffer is full.
             if (unit_size == 0 || remain == 0 || ret_size % unit_size == 0) {
-                return true;
+                break;
             }
             // Need to read only the end of a "unit".
             remain = std::min(remain, ::DWORD(unit_size - ret_size % unit_size));
         }
+        else if ((error_code = LastErrorCode()) == ERROR_HANDLE_EOF || error_code == ERROR_BROKEN_PIPE) {
+            // End of file, not a real "error".
+            _eof = true;
+            break;
+        }
         else {
-            // Read error
-            error_code = LastErrorCode();
-            if (error_code == ERROR_HANDLE_EOF || error_code == ERROR_BROKEN_PIPE) {
-                // End of file, not a real "error".
-                _eof = true;
-                // Not an error yet if we already read some data.
-                return ret_size > 0;
-            }
-            else {
-                // This is a real error
-                report.error(u"error reading from pipe: %s", {ErrorCodeMessage(error_code)});
-                return false;
-            }
+            // This is a real error
+            report.error(u"error reading from pipe: %s", {ErrorCodeMessage(error_code)});
+            return false;
         }
     }
 
@@ -671,18 +679,17 @@ bool ts::ForkPipe::read(void* addr, size_t max_size, size_t unit_size, size_t& r
         if (insize == 0) {
             // End of file.
             _eof = true;
-            // Not an error yet if we already read some data.
-            return ret_size > 0;
+            break;
         }
         else if (insize > 0) {
             // Normal case, some data were read.
             assert(size_t(insize) <= remain);
-            ret_size += insize;
+            ret_size += size_t(insize);
             data += insize;
-            remain -= std::max(remain, size_t(insize));
+            remain -= std::min(remain, size_t(insize));
             // Exit when we read an integral number of "units" or the buffer is full.
             if (unit_size == 0 || remain == 0 || ret_size % unit_size == 0) {
-                return true;
+                break;
             }
             // Need to read only the end of a "unit".
             remain = std::min(remain, unit_size - ret_size % unit_size);
@@ -694,4 +701,12 @@ bool ts::ForkPipe::read(void* addr, size_t max_size, size_t unit_size, size_t& r
         }
     }
 #endif
+
+    // At end of file, truncate to unit size (drop trailing partial unit if any).
+    if (_eof && unit_size > 0) {
+        ret_size = RoundDown(ret_size, unit_size);
+    }
+
+    // Not an error yet if we already read some data.
+    return ret_size > 0;
 }

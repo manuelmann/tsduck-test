@@ -69,7 +69,7 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        CADescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        CADescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         //!
         //! Decode a command-line CA_descriptor and fills this object with it.
@@ -110,8 +110,8 @@ namespace ts {
         static size_t SearchByCAS(const DescriptorList& dlist, uint16_t casid, size_t start_index = 0);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

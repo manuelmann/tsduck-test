@@ -88,15 +88,15 @@ bool ts::GetLocalIPAddresses(IPAddressMaskVector& list, Report& report)
 #if defined(TS_MAC)
 
     // Get the list of local addresses. The memory is allocated by getifaddrs().
-    ::ifaddrs* start = 0;
+    ::ifaddrs* start = nullptr;
     if (::getifaddrs(&start) != 0) {
         report.error(u"error getting local addresses: %s", {ErrorCodeMessage()});
         return false;
     }
 
     // Browse the list of interfaces.
-    for (::ifaddrs* ifa = start; ifa != 0; ifa = ifa->ifa_next) {
-        if (ifa->ifa_addr != 0) {
+    for (::ifaddrs* ifa = start; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr != nullptr) {
             IPAddress addr(*ifa->ifa_addr);
             if (addr.hasAddress() && addr != IPAddress::LocalHost) {
                 list.push_back(IPAddressMask(addr, IPAddress(*ifa->ifa_netmask)));
@@ -222,7 +222,7 @@ size_t ts::IPHeaderSize(const void* data, size_t size)
 
     // The first byte of the header contains the IP version and the number
     // of 32-bit words in the header.
-    if (ip != 0 && size >= IPv4_MIN_HEADER_SIZE && ((ip[0] >> 4) & 0x0F) == IPv4_VERSION) {
+    if (ip != nullptr && size >= IPv4_MIN_HEADER_SIZE && ((ip[0] >> 4) & 0x0F) == IPv4_VERSION) {
         headerSize = sizeof(uint32_t) * size_t(ip[0] & 0x0F);
     }
 

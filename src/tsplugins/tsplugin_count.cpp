@@ -133,8 +133,8 @@ ts::CountPlugin::CountPlugin(TSP* tsp_) :
          u"on standard error using the tsp logging mechanism.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"PID filter: select packets with this PID value. Several -p or --pid "
+    help(u"pid", u"pid1[-pid2]",
+         u"PID filter: select packets with these PID values. Several -p or --pid "
          u"options may be specified. By default, if --pid is not specified, all "
          u"PID's are selected.");
 
@@ -162,7 +162,7 @@ bool ts::CountPlugin::start()
     _brief_report = present(u"brief");
     _negate = present(u"negate");
     getIntValue(_report_interval, u"interval");
-    getPIDSet(_pids, u"pid");
+    getIntValues(_pids, u"pid");
 
     // By default, all PIDs are selected
     if (!present(u"pid")) {

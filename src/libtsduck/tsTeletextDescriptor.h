@@ -60,7 +60,7 @@ namespace ts {
             //! @param [in] type Teletext type, 5 bits.
             //! @param [in] page Teletext page number, combination of page and magazine number.
             //!
-            Entry(const UChar* code = 0, uint8_t type = 0, uint16_t page = 0);
+            Entry(const UChar* code = nullptr, uint8_t type = 0, uint16_t page = 0);
 
             //!
             //! Default constructor.
@@ -118,11 +118,11 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        TeletextDescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        TeletextDescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

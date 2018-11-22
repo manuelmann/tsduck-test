@@ -32,7 +32,8 @@
 //----------------------------------------------------------------------------
 
 #include "tsSectionFile.h"
-#include "tsTables.h"
+#include "tsPAT.h"
+#include "tsTDT.h"
 #include "tsSysUtils.h"
 #include "tsBinaryTable.h"
 #include "tsCerrReport.h"
@@ -188,8 +189,8 @@ void SectionFileTest::testGenericDescriptor()
 
     ts::xml::Document doc(report());
     ts::xml::Element* root = doc.initialize(u"test");
-    CPPUNIT_ASSERT(root != 0);
-    CPPUNIT_ASSERT(desc.toXML(root, 0, ts::TID_NULL, true) != 0);
+    CPPUNIT_ASSERT(root != nullptr);
+    CPPUNIT_ASSERT(desc.toXML(root, 0, ts::TID_NULL, true) != nullptr);
 
     ts::UString text(doc.toString());
     utest::Out() << "SectionFileTest::testGenericDescriptor: " << text << std::endl;
@@ -205,7 +206,7 @@ void SectionFileTest::testGenericDescriptor()
     ts::xml::Document doc2(report());
     CPPUNIT_ASSERT(doc2.parse(text));
     root = doc2.rootElement();
-    CPPUNIT_ASSERT(root != 0);
+    CPPUNIT_ASSERT(root != nullptr);
     CPPUNIT_ASSERT_USTRINGS_EQUAL(u"test", root->name());
 
     ts::xml::ElementVector children;
@@ -239,8 +240,8 @@ void SectionFileTest::testGenericShortTable()
 
     ts::xml::Document doc(report());
     ts::xml::Element* root = doc.initialize(u"test");
-    CPPUNIT_ASSERT(root != 0);
-    CPPUNIT_ASSERT(refTable.toXML(root, true) != 0);
+    CPPUNIT_ASSERT(root != nullptr);
+    CPPUNIT_ASSERT(refTable.toXML(root, true) != nullptr);
 
     ts::UString text(doc.toString());
     utest::Out() << "SectionFileTest::testGenericShortTable: " << text << std::endl;
@@ -256,7 +257,7 @@ void SectionFileTest::testGenericShortTable()
     ts::xml::Document doc2(report());
     CPPUNIT_ASSERT(doc2.parse(text));
     root = doc2.rootElement();
-    CPPUNIT_ASSERT(root != 0);
+    CPPUNIT_ASSERT(root != nullptr);
     CPPUNIT_ASSERT_USTRINGS_EQUAL(u"test", root->name());
 
     ts::xml::ElementVector children;
@@ -296,8 +297,8 @@ void SectionFileTest::testGenericLongTable()
 
     ts::xml::Document doc(report());
     ts::xml::Element* root = doc.initialize(u"test");
-    CPPUNIT_ASSERT(root != 0);
-    CPPUNIT_ASSERT(refTable.toXML(root, true) != 0);
+    CPPUNIT_ASSERT(root != nullptr);
+    CPPUNIT_ASSERT(refTable.toXML(root, true) != nullptr);
 
     ts::UString text(doc.toString());
     utest::Out() << "SectionFileTest::testGenericLongTable: " << text << std::endl;
@@ -318,7 +319,7 @@ void SectionFileTest::testGenericLongTable()
     ts::xml::Document doc2(report());
     CPPUNIT_ASSERT(doc2.parse(text));
     root = doc2.rootElement();
-    CPPUNIT_ASSERT(root != 0);
+    CPPUNIT_ASSERT(root != nullptr);
     CPPUNIT_ASSERT_USTRINGS_EQUAL(u"test", root->name());
 
     ts::xml::ElementVector children;
@@ -419,7 +420,8 @@ void SectionFileTest::testBuildSections()
 
     // Reload files.
     ts::SectionFile binFile;
-    CPPUNIT_ASSERT(binFile.loadBinary(_tempFileNameBin, report(), ts::CRC32::CHECK));
+    binFile.setCRCValidation(ts::CRC32::CHECK);
+    CPPUNIT_ASSERT(binFile.loadBinary(_tempFileNameBin, report()));
     CPPUNIT_ASSERT_EQUAL(size_t(3), binFile.tables().size());
     CPPUNIT_ASSERT_EQUAL(size_t(5), binFile.sections().size());
     CPPUNIT_ASSERT_EQUAL(size_t(0), binFile.orphanSections().size());

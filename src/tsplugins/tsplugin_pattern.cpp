@@ -103,8 +103,8 @@ ts::PatternPlugin::PatternPlugin(TSP* tsp_) :
          u"starts at the beginning of the packet payload (offset 0).");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Select packets with this PID value. Several -p or --pid options "
+    help(u"pid", u"pid1[-pid2]",
+         u"Select packets with these PID values. Several -p or --pid options "
          u"may be specified to select multiple PID's. If no such option is "
          u"specified, packets from all PID's are modified.");
 }
@@ -119,7 +119,7 @@ bool ts::PatternPlugin::start()
     _offset_pusi = intValue<uint8_t>(u"offset-pusi", 0);
     _offset_non_pusi = intValue<uint8_t>(u"offset-non-pusi", 0);
 
-    getPIDSet(_pid_list, u"pid", true);
+    getIntValues(_pid_list, u"pid", true);
     if (present(u"negate")) {
         _pid_list.flip();
     }

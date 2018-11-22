@@ -84,7 +84,7 @@ namespace ts {
         bool             _csv_format;     // Output in CSV format
         bool             _log_format;     // Output in log format
         bool             _scte35;         // Detect SCTE 35 PTS values
-        UString          _output_name;    // Output file name (NULL means stderr)
+        UString          _output_name;    // Output file name (empty means stderr)
         std::ofstream    _output_stream;  // Output stream file
         std::ostream*    _output;         // Reference to actual output stream file
         PacketCounter    _packet_count;   // Global packets count
@@ -176,7 +176,7 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
     _scte35(false),
     _output_name(),
     _output_stream(),
-    _output(0),
+    _output(nullptr),
     _packet_count(0),
     _stats(),
     _splices(),
@@ -222,8 +222,8 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
          u"--opcr, --pts, --dts is specified, report them all.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Specifies a PID to analyze. By default, all PID's are analyzed. "
+    help(u"pid", u"pid1[-pid2]",
+         u"Specifies PID's to analyze. By default, all PID's are analyzed. "
          u"Several --pid options may be specified.");
 
     option(u"pts");
@@ -250,7 +250,7 @@ ts::PCRExtractPlugin::PCRExtractPlugin(TSP* tsp_) :
 
 bool ts::PCRExtractPlugin::start()
 {
-    getPIDSet(_pids, u"pid", true);
+    getIntValues(_pids, u"pid", true);
     _all_pids = !present(u"pid");
     _separator = value(u"separator", DEFAULT_SEPARATOR);
     _noheader = present(u"noheader");

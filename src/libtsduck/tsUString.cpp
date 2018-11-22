@@ -290,12 +290,12 @@ ts::UString ts::UString::FromUTF8(const char* utf8, size_type count)
 
 ts::UString& ts::UString::assignFromUTF8(const char* utf8)
 {
-    return assignFromUTF8(utf8, utf8 == 0 ? 0 : ::strlen(utf8));
+    return assignFromUTF8(utf8, utf8 == nullptr ? 0 : ::strlen(utf8));
 }
 
 ts::UString& ts::UString::assignFromUTF8(const char* utf8, size_type count)
 {
-    if (utf8 == 0) {
+    if (utf8 == nullptr) {
         clear();
     }
     else {
@@ -1053,7 +1053,7 @@ bool ts::UString::similar(const UString& other) const
 
 bool ts::UString::similar(const void* addr, size_type size) const
 {
-    return addr != 0 && similar(FromUTF8(reinterpret_cast<const char*>(addr), size));
+    return addr != nullptr && similar(FromUTF8(reinterpret_cast<const char*>(addr), size));
 }
 
 
@@ -1087,6 +1087,37 @@ bool ts::UString::getLine(std::istream& strm)
 
         // Convert from UTF-8 to UTF-16.
         assignFromUTF8(start, len);
+        return true;
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Convert a string into a bool value.
+//----------------------------------------------------------------------------
+
+namespace {
+    const ts::Enumeration BoolEnum({
+        {u"false",   0},
+        {u"true",    1},
+        {u"yes",     1},
+        {u"no",      0},
+        {u"on",      1},
+        {u"off",     0},
+    });
+}
+
+bool ts::UString::toBool(bool& value) const
+{
+    const int iValue = BoolEnum.value(*this, false);
+
+    if (iValue == Enumeration::UNKNOWN) {
+        // Invalid string and invalid integer.
+        value = false;
+        return false;
+    }
+    else {
+        value = iValue != 0;
         return true;
     }
 }
@@ -1446,7 +1477,7 @@ void ts::UString::appendDump(const void *data,
 ts::UString ts::UString::FromDVB(const uint8_t* dvb, size_type dvbSize, const DVBCharset* charset)
 {
     // Null or empty buffer is a valid empty string.
-    if (dvb == 0 || dvbSize == 0) {
+    if (dvb == nullptr || dvbSize == 0) {
         return UString();
     }
 
@@ -1463,10 +1494,10 @@ ts::UString ts::UString::FromDVB(const uint8_t* dvb, size_type dvbSize, const DV
     dvbSize -= codeSize;
 
     // Get the character set for this DVB string.
-    if (code != 0 || charset == 0) {
+    if (code != 0 || charset == nullptr) {
         charset = DVBCharset::GetCharset(code);
     }
-    if (charset == 0) {
+    if (charset == nullptr) {
         // Unsupported charset. Collect all ANSI characters, replace others by '.'.
         UString str(dvbSize, FULL_STOP);
         for (size_type i = 0; i < dvbSize; i++) {
@@ -1492,7 +1523,7 @@ ts::UString ts::UString::FromDVB(const uint8_t* dvb, size_type dvbSize, const DV
 ts::UString ts::UString::FromDVBWithByteLength(const uint8_t*& buffer, size_t& size, const DVBCharset* charset)
 {
     // Null or empty buffer is a valid empty string.
-    if (buffer == 0 || size == 0) {
+    if (buffer == nullptr || size == 0) {
         return UString();
     }
 
@@ -1516,7 +1547,7 @@ ts::UString ts::UString::FromDVBWithByteLength(const uint8_t*& buffer, size_t& s
 ts::UString::size_type ts::UString::toDVB(uint8_t*& buffer, size_t& size, size_type start, size_type count, const DVBCharset* charset) const
 {
     // Skip degenerated cases where there is nothing to do.
-    if (buffer == 0 || size == 0 || start >= length()) {
+    if (buffer == nullptr || size == 0 || start >= length()) {
         return 0;
     }
 
@@ -1525,19 +1556,19 @@ ts::UString::size_type ts::UString::toDVB(uint8_t*& buffer, size_t& size, size_t
         &ts::DVBCharsetSingleByte::ISO_6937,     // default charset
         &ts::DVBCharsetSingleByte::ISO_8859_15,  // most european characters and Euro currency sign
         &ts::DVBCharsetUTF8::UTF_8,              // last chance, used when no other match
-        0                                        // end of list
+        nullptr                                  // end of list
     };
 
     // Look for a character set which can encode the string.
-    if (charset == 0 || !charset->canEncode(*this, start, count)) {
-        for (size_type i = 0; dvbEncoders[i] != 0; ++i) {
+    if (charset == nullptr || !charset->canEncode(*this, start, count)) {
+        for (size_type i = 0; dvbEncoders[i] != nullptr; ++i) {
             if (dvbEncoders[i]->canEncode(*this, start, count)) {
                 charset = dvbEncoders[i];
                 break;
             }
         }
     }
-    if (charset == 0) {
+    if (charset == nullptr) {
         // Should not happen since UTF-8 can encode everything.
         return 0;
     }
@@ -1583,7 +1614,7 @@ ts::ByteBlock ts::UString::toDVB(size_type start, size_type count, const DVBChar
 ts::UString::size_type ts::UString::toDVBWithByteLength(uint8_t*& buffer, size_t& size, size_type start, size_type count, const DVBCharset* charset) const
 {
     // Skip degenerated cases where there is nothing to do.
-    if (buffer == 0 || size == 0 || start >= length()) {
+    if (buffer == nullptr || size == 0 || start >= length()) {
         return 0;
     }
 
@@ -1771,7 +1802,7 @@ void ts::UString::ArgMixInContext::processArg()
     //       + : Force a '+' sign with decimal integers.
     //       0 : Zero padding for integers.
     //  digits : Minimum field width.
-    // .digits : Maximum field width.
+    // .digits : Maximum field width or precision for floating point values.
     //       ' : For integer conversions, use a separator for groups of thousands.
     //       * : Can be used instead of @e digits. The integer value is taken from the argument list.
 
@@ -1781,6 +1812,7 @@ void ts::UString::ArgMixInContext::processArg()
     UChar pad = u' ';
     size_t minWidth = 0;
     size_t maxWidth = std::numeric_limits<size_t>::max();
+    size_t precision = 6;
 
     if (*_fmt == u'-') {
         leftJustified = true;
@@ -1798,6 +1830,7 @@ void ts::UString::ArgMixInContext::processArg()
     if (*_fmt == u'.') {
         ++_fmt;
         getFormatSize(maxWidth);
+        precision = maxWidth;
         if (maxWidth < minWidth) {
             maxWidth = minWidth;
         }
@@ -1816,6 +1849,7 @@ void ts::UString::ArgMixInContext::processArg()
     // - %d : Integer in decimal.
     // - %x : Integer in lowercase hexadecimal.
     // - %X : Integer in uppercase hexadecimal.
+    // - %f : Floating point value.
     // - %% : Insert a literal % (already done).
 
     // Extract the command and set fmt to its final value, after the '%' sequence.
@@ -1825,7 +1859,7 @@ void ts::UString::ArgMixInContext::processArg()
     }
 
     // Process invalid '%' sequence.
-    if (cmd != u's' && cmd != u'c' && cmd != u'd' && cmd != u'x' && cmd != u'X') {
+    if (cmd != u's' && cmd != u'c' && cmd != u'd' && cmd != u'x' && cmd != u'X' && cmd != u'f') {
         if (debugActive()) {
             debug(u"invalid '%' sequence", cmd);
         }
@@ -1907,6 +1941,13 @@ void ts::UString::ArgMixInContext::processArg()
                 break;
         }
     }
+    else if (cmd == u'f') {
+        // Insert a floating point value
+        if (!_arg->isDouble() && debugActive()) {
+            debug(u"type mismatch, not a double", cmd);
+        }
+        _result.append(Float(_arg->toDouble(), minWidth, precision, forceSign));
+    }
     else {
         // Insert an integer in decimal.
         if (cmd != u'd' && debugActive()) {
@@ -1961,7 +2002,7 @@ void ts::UString::ArgMixInContext::getFormatSize(size_t& size)
 
 
 //----------------------------------------------------------------------------
-// Analysis context of a Scan string.
+// Analysis context of a scan string.
 //----------------------------------------------------------------------------
 
 ts::UString::ArgMixOutContext::ArgMixOutContext(size_t& extractedCount, const UChar*& input, const UChar*& fmt, const std::initializer_list<ArgMixOut>& args) :
@@ -2027,9 +2068,16 @@ bool ts::UString::ArgMixOutContext::processField()
     // - %X : Same as %x.
     // - %c : Matches the next non-space character. The Unicode code point is returned.
     // - %% : Matches a literal % (already done).
+    // The allowed options, between the '%' and the letter are:
+    //    ' : For decimal integer conversions, skip separators for groups of thousands.
 
     // Extract the command and set fmt to its final value, after the '%' sequence.
-    const UChar cmd = *++_fmt;
+    bool skipSeparator = false;
+    UChar cmd = *++_fmt;
+    if (cmd == u'\'') {
+        skipSeparator = true;
+        cmd = *++_fmt;
+    }
     if (cmd != CHAR_NULL) {
         ++_fmt;
     }
@@ -2089,7 +2137,7 @@ bool ts::UString::ArgMixOutContext::processField()
         if (_input[0] == u'-' && IsDigit(_input[1])) {
             _input += 2;
         }
-        while (IsDigit(*_input)) {
+        while (IsDigit(*_input) || (skipSeparator && *_input == u',')) {
             _input++;
         }
     }
@@ -2102,16 +2150,19 @@ bool ts::UString::ArgMixOutContext::processField()
 
     // Build the string to decode, preserve optional prefix we added.
     value.append(start, _input - start);
+    if (skipSeparator) {
+        value.remove(u',');
+    }
 
     // Decode signed or usigned value. Use 64 bits in all cases.
     // Note the decoding should not fail since we already checked the syntax.
     if (_arg->isSigned()) {
-        int64_t i;
+        int64_t i = 0;
         value.toInteger(i);
         _arg->storeInteger(i);
     }
     else {
-        uint64_t i;
+        uint64_t i = 0;
         value.toInteger(i);
         _arg->storeInteger(i);
     }
@@ -2119,4 +2170,22 @@ bool ts::UString::ArgMixOutContext::processField()
     // Finally, absorb the extracted argument.
     ++_arg;
     return true;
+}
+
+
+//----------------------------------------------------------------------------
+// Format a string containing a floating point value.
+//----------------------------------------------------------------------------
+
+ts::UString ts::UString::Float(double value, size_type width, size_type precision, bool force_sign)
+{
+    // Slightly oversized buffer.
+    char valueStr[10 + std::numeric_limits<double>::digits - std::numeric_limits<double>::min_exponent];
+    if (force_sign) {
+        std::snprintf(valueStr, sizeof(valueStr), "%+*.*f", int(width), int(precision), value);
+    }
+    else {
+        std::snprintf(valueStr, sizeof(valueStr), "%*.*f", int(width), int(precision), value);
+    }
+    return FromUTF8(valueStr);
 }

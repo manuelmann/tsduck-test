@@ -49,6 +49,7 @@ SUBDIRS += \
     tsplugin_dektec \
     tsplugin_descrambler \
     tsplugin_drop \
+    tsplugin_duplicate \
     tsplugin_dvb \
     tsplugin_eit \
     tsplugin_encap \
@@ -57,6 +58,7 @@ SUBDIRS += \
     tsplugin_fork \
     tsplugin_hides \
     tsplugin_history \
+    tsplugin_hls \
     tsplugin_http \
     tsplugin_inject \
     tsplugin_ip \

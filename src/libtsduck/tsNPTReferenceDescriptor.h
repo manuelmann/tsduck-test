@@ -63,7 +63,7 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        NPTReferenceDescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        NPTReferenceDescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         //!
         //! Recompute the NPT/STC scale using another NPT_reference_descriptor.
@@ -110,8 +110,8 @@ namespace ts {
         uint64_t stcToNPT(uint64_t stc) const;
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

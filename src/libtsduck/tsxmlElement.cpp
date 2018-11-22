@@ -70,7 +70,7 @@ void ts::xml::Element::clear()
 ts::xml::Element* ts::xml::Element::findFirstChild(const UString& name, bool silent)
 {
     // Loop on all children.
-    for (Element* child = firstChildElement(); child != 0; child = child->nextSiblingElement()) {
+    for (Element* child = firstChildElement(); child != nullptr; child = child->nextSiblingElement()) {
         if (name.empty() || name.similar(child->name())) {
             return child;
         }
@@ -80,7 +80,7 @@ ts::xml::Element* ts::xml::Element::findFirstChild(const UString& name, bool sil
     if (!silent) {
         _report.error(u"Child node <%s> not found in <%s>, line %d", {name, _value, lineNumber()});
     }
-    return 0;
+    return nullptr;
 }
 
 
@@ -98,7 +98,7 @@ bool ts::xml::Element::getChildren(ElementVector& children, const UString& searc
     }
 
     // Loop on all children.
-    for (const Element* child = firstChildElement(); child != 0; child = child->nextSiblingElement()) {
+    for (const Element* child = firstChildElement(); child != nullptr; child = child->nextSiblingElement()) {
         if (searchName.similar(child->name())) {
             children.push_back(child);
         }
@@ -165,9 +165,9 @@ bool ts::xml::Element::getText(UString& data, const bool trim, size_t minSize, s
     data.clear();
 
     // Locate and concatenate text children.
-    for (const Node* node = firstChild(); node != 0; node = node->nextSibling()) {
+    for (const Node* node = firstChild(); node != nullptr; node = node->nextSibling()) {
         const Text* text = dynamic_cast<const Text*>(node);
-        if (text != 0) {
+        if (text != nullptr) {
             data.append(text->value());
         }
     }
@@ -282,7 +282,7 @@ ts::xml::Text* ts::xml::Element::addText(const UString& text)
 ts::xml::Text* ts::xml::Element::addHexaText(const void* data, size_t size)
 {
     // Filter incorrect parameters.
-    if (data == 0) {
+    if (data == nullptr) {
         data = "";
         size = 0;
     }
@@ -606,9 +606,7 @@ void ts::xml::Element::print(TextFormatter& output, bool keepNodeOpen) const
     // Loop on all attributes.
     for (UStringList::const_iterator it = names.begin(); it != names.end(); ++it) {
         const Attribute& attr(attribute(*it));
-        // In attribute values, we escape all 5 XML characters: < > & ' "
-        // This may seem a bit excessive but needed by some XML analyzers.
-        output << " " << attr.name() << "=\"" << attr.value().toHTML(u"<>&'\"") << '"';
+        output << " " << attr.name() << "=" << attr.formattedValue(tweaks());
     }
 
     // Close the tag and return if nothing else to output.
@@ -624,7 +622,7 @@ void ts::xml::Element::print(TextFormatter& output, bool keepNodeOpen) const
     bool sticky = false;
 
     // Display list of children.
-    for (const Node* node = firstChild(); node != 0; node = node->nextSibling()) {
+    for (const Node* node = firstChild(); node != nullptr; node = node->nextSibling()) {
         const bool previousSticky = sticky;
         sticky = node->stickyOutput();
         if (!previousSticky && !sticky) {
@@ -653,7 +651,7 @@ void ts::xml::Element::print(TextFormatter& output, bool keepNodeOpen) const
 
 void ts::xml::Element::printClose(TextFormatter& output, size_t levels) const
 {
-    for (const Element* elem = this; levels-- > 0 && elem != 0; elem = dynamic_cast<const Element*>(elem->parent())) {
+    for (const Element* elem = this; levels-- > 0 && elem != nullptr; elem = dynamic_cast<const Element*>(elem->parent())) {
         output << ts::unindent << ts::margin << "</" << elem->name() << ">" << std::endl;
     }
 }
@@ -677,7 +675,7 @@ bool ts::xml::Element::parseNode(TextParser& parser, const Node* parent)
     while (ok) {
         UString name;
         UString value;
-        const UChar* quote = 0;
+        const UChar* quote = nullptr;
 
         parser.skipWhiteSpace();
 

@@ -99,7 +99,7 @@ TSPLUGIN_DECLARE_PROCESSOR(remap, ts::RemapPlugin)
 //----------------------------------------------------------------------------
 
 ts::RemapPlugin::RemapPlugin (TSP* tsp_) :
-    ProcessorPlugin (tsp_, u"Generic PID remapper.", u"[options] [pid[-pid]=newpid ...]"),
+    ProcessorPlugin (tsp_, u"Generic PID remapper", u"[options] [pid[-pid]=newpid ...]"),
     _check_integrity(false),
     _update_psi(false),
     _pmt_ready(false),
@@ -261,7 +261,7 @@ ts::RemapPlugin::CyclingPacketizerPtr ts::RemapPlugin::getPacketizer(PID pid, bo
         return ptr;
     }
     else {
-        return CyclingPacketizerPtr(0);
+        return CyclingPacketizerPtr(nullptr);
     }
 }
 
@@ -329,7 +329,7 @@ void ts::RemapPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
             // Process the PMT content
             processDescriptors(pmt.descs, TID_PMT);
             pmt.pcr_pid = remap(pmt.pcr_pid);
-            PMT::StreamMap new_map(0);
+            PMT::StreamMap new_map(nullptr);
             for (PMT::StreamMap::iterator it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
                 processDescriptors(it->second.descs, TID_PMT);
                 new_map[remap(it->first)] = it->second;
@@ -348,7 +348,7 @@ void ts::RemapPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::RemapPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::RemapPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
 {
     const PID pid = pkt.getPID();
     const PID new_pid = remap(pid);

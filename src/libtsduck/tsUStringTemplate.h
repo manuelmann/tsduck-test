@@ -145,7 +145,7 @@ ts::UString::UString(const std::array<CHARTYPE, SIZE>& arr, const allocator_type
 template <class CONTAINER>
 void ts::UString::split(CONTAINER& container, UChar separator, bool trimSpaces, bool removeEmpty) const
 {
-    const UChar* sep = 0;
+    const UChar* sep = nullptr;
     const UChar* input = c_str();
     container.clear();
 
@@ -168,13 +168,62 @@ void ts::UString::split(CONTAINER& container, UChar separator, bool trimSpaces, 
 
 
 //----------------------------------------------------------------------------
+// Split the string into shell-style arguments.
+//----------------------------------------------------------------------------
+
+template <class CONTAINER>
+void ts::UString::splitShellStyle(CONTAINER& container) const
+{
+    const size_t end = this->size();
+    size_t pos = 0;
+    container.clear();
+
+    // Loop on all arguments.
+    while (pos < end) {
+        // Skip all spaces.
+        while (pos < end && IsSpace(this->at(pos))) {
+            pos++;
+        }
+        if (pos >= end) {
+            break;
+        }
+        // Start of an argument.
+        UString arg;
+        UChar quote = 0;
+        while (pos < end && (quote != 0 || !IsSpace(this->at(pos)))) {
+            // Process opening and closing quotes.
+            const UChar c = this->at(pos++);
+            if (quote == 0 && (c == '"' || c == '\'')) {
+                // Opening quote.
+                quote = c;
+            }
+            else if (quote != 0 && c == quote) {
+                // Closing quote.
+                quote = 0;
+            }
+            else if (c == '\\' && pos < end) {
+                // Get next character without interpretation.
+                arg.append(this->at(pos++));
+            }
+            else {
+                // Literal character.
+                arg.append(c);
+            }
+        }
+        // Argument completed.
+        container.push_back(arg);
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // Split a string into segments by starting / ending characters.
 //----------------------------------------------------------------------------
 
 template <class CONTAINER>
 void ts::UString::splitBlocks(CONTAINER& container, UChar startWith, UChar endWith, bool trimSpaces) const
 {
-    const UChar *sep = 0;
+    const UChar *sep = nullptr;
     const UChar* input = c_str();
     container.clear();
 

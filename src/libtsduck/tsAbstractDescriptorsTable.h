@@ -47,8 +47,8 @@ namespace ts {
         DescriptorList descs; //!< List of descriptors.
 
         // Inherited methods
-        virtual void serialize(BinaryTable&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const BinaryTable&, const DVBCharset* = 0) override;
+        virtual void serialize(BinaryTable&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const BinaryTable&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplaySection();
@@ -83,7 +83,7 @@ namespace ts {
         //! @param [in] table Binary table to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        AbstractDescriptorsTable(TID tid, const UChar* xml_name, const BinaryTable& table, const DVBCharset* charset = 0);
+        AbstractDescriptorsTable(TID tid, const UChar* xml_name, const BinaryTable& table, const DVBCharset* charset = nullptr);
 
     private:
         AbstractDescriptorsTable() = delete;

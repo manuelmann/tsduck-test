@@ -118,7 +118,7 @@ ts::AESPlugin::AESPlugin(TSP* tsp_) :
     _cts3(),
     _cts4(),
     _dvs042(),
-    _chain(0)
+    _chain(nullptr)
 {
     option(u"", 0, STRING, 0, 1);
     help(u"",
@@ -181,7 +181,7 @@ ts::AESPlugin::AESPlugin(TSP* tsp_) :
          u"parameter.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
+    help(u"pid", u"pid1[-pid2]",
          u"Specifies a PID to scramble. Can be used instead of specifying a service. "
          u"Several -p or --pid options may be specified.");
 }
@@ -195,7 +195,7 @@ bool ts::AESPlugin::start()
 {
     // Get option values
     _descramble = present(u"descramble");
-    getPIDSet(_scrambled, u"pid");
+    getIntValues(_scrambled, u"pid");
     if (present(u"")) {
         _service.set(value(u""));
     }

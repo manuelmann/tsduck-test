@@ -137,8 +137,8 @@ ts::PCRVerifyPlugin::PCRVerifyPlugin(TSP* tsp_) :
          UString::Decimal(DEFAULT_JITTER_MAX_US) + u" micro-seconds.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"PID filter: select packets with this PID value. "
+    help(u"pid", u"pid1[-pid2]",
+         u"PID filter: select packets with these PID values. "
          u"Several -p or --pid options may be specified. "
          u"Without -p or --pid option, PCR's from all PID's are used.");
 
@@ -157,7 +157,7 @@ bool ts::PCRVerifyPlugin::start()
     _jitter_max = intValue<int64_t>(u"jitter-max", _absolute ? DEFAULT_JITTER_MAX : DEFAULT_JITTER_MAX_US);
     _bitrate = intValue<BitRate>(u"bitrate", 0);
     _time_stamp = present(u"time-stamp");
-    getPIDSet(_pid_list, u"pid", true);
+    getIntValues(_pid_list, u"pid", true);
 
     if (!_absolute) {
         // Convert _jitter_max from micro-second to PCR units

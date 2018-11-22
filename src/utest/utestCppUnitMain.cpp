@@ -33,6 +33,13 @@
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
+
+// Make sure that NULL in CppUnit headers does not trigger fatal warnings.
+#if defined(NULL)
+#undef NULL
+#endif
+#define NULL nullptr
+
 #include <cppunit/TextOutputter.h>
 #include <cppunit/XmlOutputter.h>
 #include <cppunit/extensions/TestFactoryRegistry.h>
@@ -146,7 +153,7 @@ int utest::CppUnitMain::usage()
 namespace {
     void ListTests(CppUnit::Test* test, size_t indent, bool print)
     {
-        if (test != 0) {
+        if (test != nullptr) {
             if (print) {
                 std::cout << std::string(indent, ' ') << test->getName() << std::endl;
                 indent += 4;

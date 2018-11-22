@@ -38,7 +38,7 @@
 #include "tsReportWithPrefix.h"
 #include "tsTextFormatter.h"
 #include "tsTextParser.h"
-#include "tsxml.h"
+#include "tsxmlTweaks.h"
 
 namespace ts {
     namespace xml {
@@ -101,6 +101,13 @@ namespace ts {
             Document* document();
 
             //!
+            //! Get a constant reference to the current XML parsing and formatting tweaks for this node.
+            //! @return A constant reference to the XML tweaks to apply. When the node is part of a
+            //! document, get the global tweaks of the document. Otherwise, get the default tweaks.
+            //!
+            virtual const Tweaks& tweaks() const;
+
+            //!
             //! Get the depth of an XML element.
             //! @return The depth of the element, ie. the number of ancestors.
             //!
@@ -110,13 +117,13 @@ namespace ts {
             //! Check if the node has children.
             //! @return True if the node has children.
             //!
-            bool hasChildren() const { return _firstChild != 0; }
+            bool hasChildren() const { return _firstChild != nullptr; }
 
             //!
             //! Get the number of children.
             //! @return The number of children.
             //!
-            size_t childrenCount() const { return _firstChild == 0 ? 0 : _firstChild->ringSize(); }
+            size_t childrenCount() const { return _firstChild == nullptr ? 0 : _firstChild->ringSize(); }
 
             //!
             //! Get the first child of a node.
@@ -134,13 +141,13 @@ namespace ts {
             //! Get the last child.
             //! @return The last child or zero if there is none.
             //!
-            const Node* lastChild() const { return _firstChild == 0 ? 0 : _firstChild->ringPrevious<Node>(); }
+            const Node* lastChild() const { return _firstChild == nullptr ? nullptr : _firstChild->ringPrevious<Node>(); }
 
             //!
             //! Get the last child.
-            //! @return The last child or zero if there is none.
+            //! @return The last child or nullptr if there is none.
             //!
-            Node* lastChild() { return _firstChild == 0 ? 0 : _firstChild->ringPrevious<Node>(); }
+            Node* lastChild() { return _firstChild == nullptr ? nullptr : _firstChild->ringPrevious<Node>(); }
 
             //!
             //! Get the next sibling node.
@@ -317,6 +324,8 @@ namespace ts {
             Node*   _parent;        //!< Parent node, null for a document.
             Node*   _firstChild;    //!< First child, can be null, other children are linked through the RingNode.
             size_t  _inputLineNum;  //!< Line number in input document, zero if build programmatically.
+
+            static const Tweaks defaultTweaks;  //!< Default XML tweaks for orphan nodes.
 
             // Inaccessible operations.
             Node(const Node&) = delete;

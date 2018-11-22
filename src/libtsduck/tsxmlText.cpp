@@ -60,11 +60,11 @@ void ts::xml::Text::print(TextFormatter& output, bool keepNodeOpen) const
         output << "<![CDATA[" << _value << "]]>";
     }
     else {
-        // In text nodes, we escape 3 out of 5 XML characters: < > &
+        // In text nodes, without strictly conformant XML, we escape 3 out of 5 XML characters: < > &
         // This is the required minimum to make the syntax correct.
         // The quotes (' ") are not escaped since this makes most XML text unreadable.
-        // We may reconsider this if this causes problems with XML analysis tools.
-        output << _value.toHTML(u"<>&");
+        const Tweaks& tw(tweaks());
+        output << _value.toHTML(tw.strictTextNodeFormatting ? u"<>&'\"" : u"<>&");
     }
 }
 

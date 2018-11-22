@@ -290,7 +290,7 @@ bool ts::Thread::waitForTermination()
     ::WaitForSingleObject(_handle, INFINITE);
     ::CloseHandle(_handle);
 #else
-    ::pthread_join(_pthread, NULL);
+    ::pthread_join(_pthread, nullptr);
 #endif
 
     // Critical section on flags
@@ -351,7 +351,7 @@ void* ts::Thread::ThreadProc(void* parameter)
         delete thread;
     }
 
-    return 0;
+    return nullptr;
 }
 
 #endif

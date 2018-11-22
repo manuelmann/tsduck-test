@@ -2,13 +2,41 @@ TSDUCK CHANGE LOG AND RELEASE NOTES
 
 -------------------------------------------------------------------------------
 
-VERSION 3.15-957
+VERSION 3.16-1049
+
+[NEW] New commands and plugins:
+
+  * Added input plugin "hls" to receive HTTP Live Streaming (HLS).
+
+[IMP] Improvements on existing commands and plugins:
+
+  * In all commands and plugins, when an option takes an integer value and can
+    be present several times, it is now possible to specify ranges of values
+    (e.g. "--pid 0-3" instead of "--pid 0 --pid 1 --pid 2 --pid 3").
+  * Added option --pack to plugin "encap".
+  * Added options --log, --log-size, --no-headers and --pid to "tsdump".
+  * Added option --fill-eit to "tstables" and plugin "tables".
+  * In plugin "rmsplice", immediate splice events are no longer ignored.
+  * Implement guidelines from ETSI TR 101 211 when compiling EIT's.
+  * In XML descriptions of NIT and BAT, it is now possible to specify a
+    preferred section index for each TS.
+
+[BUG] Bug fixes:
+
+  * In plugin "http", the option --receive-timeout was ignored.
+  * In "tsanalyze" and plugin "analyze", section analysis was missing on some
+    PID's (including EIT's).
+
+-------------------------------------------------------------------------------
+
+VERSION 3.15-1007
 
 [NEW] New commands and plugins:
 
   * Added command "tsswitch", a TS input switcher with remote control.
   * Added command "tsgenecm", generate one ECM using any DVB SimulCrypt ECMG.
   * Added plugin "limit" to limit the global TS bitrate.
+  * Added plugin "duplicate" to duplicate one or more PID's.
   * Added plugins "encap" and "decap" to encapsulate and decapsulate PID's
     into one single tunnel PID.
 
@@ -22,8 +50,15 @@ VERSION 3.15-957
   * Added options --udp-size, --min-udp-size, --max-udp-size, --net-size,
     --min-net-size, --max-net-size to plugin "mpe".
   * Added option --network-id to plugin "nitscan".
+  * Added option --strict-xml to "tstabcomp", "tstables" and plugin "tables".
   * Added option --max-packets to "tsdump".
   * The command "tsdump" can now accept multiple input files.
+  * Added demodulator support in the input plugin "dektec" (e.g. DTA-2137).
+  * Added options --audio-pid and --eit to plugin "zap".
+  * Added option --sei-type to plugin "pes".
+  * Added option --event-id to plugin "rmsplice".
+  * Added the per-user configuration file $HOME/.tsduck to specify default or
+    alternate options to various commands.
 
 [BUG] Bug fixes:
 

@@ -66,7 +66,8 @@ linux|mac|mingw {
     GCC_MAJOR = $$member(GCC_FIELDS, 0)
     QMAKE_CXXFLAGS_WARN_ON = -Werror -Wall -Wextra -Wformat-security -Wswitch-default \
         -Wuninitialized -Wno-unused-parameter -Wfloat-equal -Wpointer-arith -Wsign-promo \
-        -Woverloaded-virtual -Wctor-dtor-privacy -Wnon-virtual-dtor -Woverloaded-virtual
+        -Woverloaded-virtual -Wctor-dtor-privacy -Wnon-virtual-dtor -Woverloaded-virtual \
+        -Wzero-as-null-pointer-constant
     greaterThan(GCC_MAJOR, 4): QMAKE_CXXFLAGS_WARN_ON += -Wpedantic -Weffc++ -Wshadow
     QMAKE_CXXFLAGS += -fno-strict-aliasing -fstack-protector-all -std=c++11
     QMAKE_CXXFLAGS += $$system(curl-config --cflags)

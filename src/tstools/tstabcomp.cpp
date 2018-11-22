@@ -36,6 +36,7 @@
 #include "tsBinaryTable.h"
 #include "tsSectionFile.h"
 #include "tsDVBCharset.h"
+#include "tsxmlTweaksArgs.h"
 #include "tsReportWithPrefix.h"
 #include "tsInputRedirector.h"
 #include "tsOutputRedirector.h"
@@ -62,6 +63,7 @@ struct Options: public ts::Args
     bool                  compile;         // Explicit compilation.
     bool                  decompile;       // Explicit decompilation.
     bool                  xmlModel;        // Display XML model instead of compilation.
+    ts::xml::TweaksArgs   xmlTweaks;       // XML formatting options.
     const ts::DVBCharset* defaultCharset;  // Default DVB character set to interpret strings.
 
 private:
@@ -78,8 +80,11 @@ Options::Options(int argc, char *argv[]) :
     compile(false),
     decompile(false),
     xmlModel(false),
-    defaultCharset(0)
+    xmlTweaks(),
+    defaultCharset(nullptr)
 {
+    xmlTweaks.defineOptions(*this);
+
     option(u"", 0, STRING);
     help(u"",
          u"XML source files to compile or binary table files to decompile. By default, "
@@ -133,6 +138,7 @@ Options::Options(int argc, char *argv[]) :
     decompile = present(u"decompile");
     xmlModel = present(u"xml-model");
     outdir = !outfile.empty() && ts::IsDirectory(outfile);
+    xmlTweaks.load(*this);
 
     if (!infiles.empty() && xmlModel) {
         error(u"do not specify input files with --xml-model");
@@ -146,7 +152,7 @@ Options::Options(int argc, char *argv[]) :
 
     // Get default character set.
     const ts::UString csName(value(u"default-charset"));
-    if (!csName.empty() && (defaultCharset = ts::DVBCharset::GetCharset(csName)) == 0) {
+    if (!csName.empty() && (defaultCharset = ts::DVBCharset::GetCharset(csName)) == nullptr) {
         error(u"invalid character set name '%s", {csName});
     }
 
@@ -210,6 +216,10 @@ bool ProcessFile(Options& opt, const ts::UString& infile)
     }
 
     ts::SectionFile file;
+    file.setTweaks(opt.xmlTweaks.tweaks());
+    file.setDefaultCharset(opt.defaultCharset);
+    file.setCRCValidation(ts::CRC32::CHECK);
+
     ts::ReportWithPrefix report(opt, ts::BaseName(infile) + u": ");
 
     // Process the input file, starting with error cases.
@@ -228,12 +238,12 @@ bool ProcessFile(Options& opt, const ts::UString& infile)
     else if (compile) {
         // Load XML file and save binary sections.
         opt.verbose(u"Compiling %s to %s", {infile, outname});
-        return file.loadXML(infile, report, opt.defaultCharset) && file.saveBinary(outname, report);
+        return file.loadXML(infile, report) && file.saveBinary(outname, report);
     }
     else {
         // Load binary sections and save XML file.
         opt.verbose(u"Decompiling %s to %s", {infile, outname});
-        return file.loadBinary(infile, report, ts::CRC32::CHECK) && file.saveXML(outname, report, opt.defaultCharset);
+        return file.loadBinary(infile, report) && file.saveXML(outname, report);
     }
 }
 

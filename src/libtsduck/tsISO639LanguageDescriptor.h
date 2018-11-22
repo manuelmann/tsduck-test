@@ -58,7 +58,7 @@ namespace ts {
             //! @param [in] code ISO-639 language code, 3 characters, as a C-string. Can be null.
             //! @param [in] type Audio type.
             //!
-            Entry(const UChar* code = 0, uint8_t type = 0);
+            Entry(const UChar* code = nullptr, uint8_t type = 0);
 
             //!
             //! Constructor.
@@ -98,11 +98,11 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        ISO639LanguageDescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        ISO639LanguageDescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

@@ -31,7 +31,22 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsTables.h"
+#include "tsPAT.h"
+#include "tsCAT.h"
+#include "tsPMT.h"
+#include "tsBAT.h"
+#include "tsNIT.h"
+#include "tsSDT.h"
+#include "tsTOT.h"
+#include "tsTSDT.h"
+#include "tsEIT.h"
+#include "tsAIT.h"
+#include "tsCADescriptor.h"
+#include "tsAVCVideoDescriptor.h"
+#include "tsAC3Descriptor.h"
+#include "tsEacemPreferredNameIdentifierDescriptor.h"
+#include "tsLogicalChannelNumberDescriptor.h"
+#include "tsEutelsatChannelNumberDescriptor.h"
 #include "utestCppUnitTest.h"
 TSDUCK_SOURCE;
 
@@ -332,7 +347,7 @@ void TableTest::testTSDT()
 void TableTest::testCleanupPrivateDescriptors()
 {
     // Issue #87 non-regression.
-    ts::DescriptorList dlist(0);
+    ts::DescriptorList dlist(nullptr);
     dlist.add(ts::EacemPreferredNameIdentifierDescriptor());
     dlist.add(ts::LogicalChannelNumberDescriptor());
     dlist.add(ts::ServiceDescriptor());

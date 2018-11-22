@@ -165,8 +165,8 @@ ts::LimitPlugin::LimitPlugin(TSP* tsp_) :
          u"in bits/second. This is a mandatory option, there is no default.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Specify a PID the content of which can be dropped when the maximum bitrate "
+    help(u"pid", u"pid1[-pid2]",
+         u"Specify PID's the content of which can be dropped when the maximum bitrate "
          u"is exceeded. Several --pid options can be specified.");
 
     option(u"threshold1", '1', UINT32);
@@ -203,7 +203,7 @@ bool ts::LimitPlugin::start()
     _threshold1 = intValue<PacketCounter>(u"threshold1", DEFAULT_THRESHOLD1);
     _threshold2 = intValue<PacketCounter>(u"threshold2", DEFAULT_THRESHOLD2);
     _threshold3 = intValue<PacketCounter>(u"threshold3", DEFAULT_THRESHOLD3);
-    getPIDSet(_pids1, u"pid");
+    getIntValues(_pids1, u"pid");
 
     // Threshold for audio/video packets. If a list of --pid is specified, we start
     // dropping a/v at --threshold2 only. But, without any --pid, we start at --threshold1.

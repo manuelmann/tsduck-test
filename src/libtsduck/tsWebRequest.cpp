@@ -64,11 +64,11 @@ ts::WebRequest::WebRequest(Report& report) :
     _httpStatus(0),
     _contentSize(0),
     _headerContentSize(0),
-    _dlData(0),
+    _dlData(nullptr),
     _dlFile(),
-    _dlHandler(0),
+    _dlHandler(nullptr),
     _interrupted(false),
-    _guts(0)
+    _guts(nullptr)
 {
     allocateGuts();
     CheckNonNull(_guts);
@@ -81,9 +81,9 @@ ts::WebRequest::WebRequest(Report& report) :
 
 ts::WebRequest::~WebRequest()
 {
-    if (_guts != 0) {
+    if (_guts != nullptr) {
         deleteGuts();
-        _guts = 0;
+        _guts = nullptr;
     }
 }
 
@@ -141,6 +141,27 @@ void ts::WebRequest::SetDefaultProxyUser(const UString& user, const UString& pas
 
 
 //----------------------------------------------------------------------------
+// Set various arguments from command line.
+//----------------------------------------------------------------------------
+
+void ts::WebRequest::setArgs(const ts::WebRequestArgs& args)
+{
+    if (!args.proxyHost.empty()) {
+        setProxyHost(args.proxyHost, args.proxyPort);
+    }
+    if (!args.proxyUser.empty()) {
+        setProxyUser(args.proxyUser, args.proxyPassword);
+    }
+    if (args.connectionTimeout > 0) {
+        setConnectionTimeout(args.connectionTimeout);
+    }
+    if (args.receiveTimeout > 0) {
+        setReceiveTimeout(args.receiveTimeout);
+    }
+}
+
+
+//----------------------------------------------------------------------------
 // Set request headers.
 //----------------------------------------------------------------------------
 
@@ -168,6 +189,33 @@ ts::UString ts::WebRequest::reponseHeader(const UString& name) const
 {
     const HeadersMap::const_iterator it = _responseHeaders.find(name);
     return it == _responseHeaders.end() ? UString() : it->second;
+}
+
+
+//----------------------------------------------------------------------------
+// Get the MIME type in the response headers.
+//----------------------------------------------------------------------------
+
+ts::UString ts::WebRequest::mimeType(bool simple, bool lowercase) const
+{
+    // Get complete MIME type.
+    UString mime(reponseHeader(u"Content-Type"));
+
+    // Get initial type, before ';', in simple form.
+    if (simple) {
+        const size_t semi = mime.find(u';');
+        if (semi != NPOS) {
+            mime.erase(semi);
+        }
+        mime.trim();
+    }
+
+    // Force case.
+    if (lowercase) {
+        mime.convertToLower();
+    }
+
+    return mime;
 }
 
 
@@ -234,7 +282,7 @@ void ts::WebRequest::processReponseHeaders(const UString& text)
 bool ts::WebRequest::copyData(const void* addr, size_t size)
 {
     // Copy data in memory buffer if there is one.
-    if (_dlData != 0) {
+    if (_dlData != nullptr) {
         // Check maximum buffer size.
         const size_t newSize = BoundedAdd(_dlData->size(), size);
         if (newSize >= _dlData->max_size()) {
@@ -261,7 +309,7 @@ bool ts::WebRequest::copyData(const void* addr, size_t size)
     }
 
     // Pass data to application if a handler is defined.
-    if (_dlHandler != 0 && !_dlHandler->handleWebData(*this, addr, size)) {
+    if (_dlHandler != nullptr && !_dlHandler->handleWebData(*this, addr, size)) {
         _report.debug(u"Web transfer is interrupted by application");
         _interrupted = true;
         return false;
@@ -284,7 +332,7 @@ bool ts::WebRequest::setPossibleContentSize(size_t totalSize)
         _report.debug(u"announced content size: %d bytes", {_headerContentSize});
 
         // Enlarge memory buffer when necessary to avoid too frequent reallocations.
-        if (_dlData != 0 && totalSize > _dlData->capacity()) {
+        if (_dlData != nullptr && totalSize > _dlData->capacity()) {
             if (totalSize > _dlData->max_size()) {
                 return false; // too large (but unlikely)
             }
@@ -328,8 +376,8 @@ bool ts::WebRequest::clearTransferResults()
     _contentSize = 0;
     _headerContentSize = 0;
     _finalURL = _originalURL;
-    _dlData = 0;
-    _dlHandler = 0;
+    _dlData = nullptr;
+    _dlHandler = nullptr;
 
     // Close spurious file (should not happen).
     if (_dlFile.is_open()) {
@@ -367,7 +415,7 @@ bool ts::WebRequest::downloadBinaryContent(ByteBlock& data)
         catch (...) {
             ok = false;
         }
-        _dlData = 0;
+        _dlData = nullptr;
         downloadClose();
     }
 
@@ -413,7 +461,7 @@ bool ts::WebRequest::downloadToApplication(WebRequestHandlerInterface* handler)
     _interrupted = false;
 
     // Transfer initialization.
-    bool ok = handler != 0 && clearTransferResults() && downloadInitialize();
+    bool ok = handler != nullptr && clearTransferResults() && downloadInitialize();
 
     // Actual transfer.
     if (ok) {
@@ -430,7 +478,7 @@ bool ts::WebRequest::downloadToApplication(WebRequestHandlerInterface* handler)
         catch (...) {
             ok = false;
         }
-        _dlHandler = 0;
+        _dlHandler = nullptr;
         downloadClose();
     }
 

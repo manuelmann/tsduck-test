@@ -36,7 +36,7 @@
 #include "tsPluginRepository.h"
 #include "tsCASSelectionArgs.h"
 #include "tsSectionDemux.h"
-#include "tsTables.h"
+#include "tsPAT.h"
 TSDUCK_SOURCE;
 
 
@@ -113,11 +113,11 @@ ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
     SectionHandlerInterface(),
     _output_name(),
     _output_stream(),
-    _output(0),
+    _output(nullptr),
     _cas_args(),
     _analyze_pids(),
-    _analyze_demux(0, this),  // this one intercepts all sections for stuffing analysis
-    _psi_demux(this, 0),      // this one is used for PSI parsing
+    _analyze_demux(nullptr, this),  // this one intercepts all sections for stuffing analysis
+    _psi_demux(this, nullptr),      // this one is used for PSI parsing
     _total(),
     _pid_contexts()
 {
@@ -131,7 +131,8 @@ ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
          u"the same byte value (all 0x00 or all 0xFF for instance).");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid", u"Analyze all tables from this PID. Several -p or --pid options may be specified.");
+    help(u"pid",  u"pid1[-pid2]",
+         u"Analyze all tables from these PID's. Several -p or --pid options may be specified.");
 
     // CAS filtering options.
     _cas_args.defineOptions(*this);
@@ -147,7 +148,7 @@ bool ts::StuffAnalyzePlugin::start()
     // Get command line arguments
     _cas_args.load(*this);
     _output_name = value(u"output-file");
-    getPIDSet(_analyze_pids, u"pid");
+    getIntValues(_analyze_pids, u"pid");
 
     // Initialize the PSI demux.
     _psi_demux.reset();

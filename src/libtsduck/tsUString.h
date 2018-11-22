@@ -249,7 +249,7 @@ namespace ts {
         //! @param [in] alloc Allocator.
         //!
         UString(const UChar* s, size_type count, const allocator_type& alloc = allocator_type()) :
-            SuperClass(s == 0 && count == 0 ? &CHAR_NULL : s, count, alloc) {}
+            SuperClass(s == nullptr && count == 0 ? &CHAR_NULL : s, count, alloc) {}
 
         //!
         //! Constructor using a null-terminated Unicode string.
@@ -257,7 +257,7 @@ namespace ts {
         //! @param [in] alloc Allocator.
         //!
         UString(const UChar* s, const allocator_type& alloc = allocator_type()) :
-            SuperClass(s == 0 ? &CHAR_NULL : s, alloc) {}
+            SuperClass(s == nullptr ? &CHAR_NULL : s, alloc) {}
 
         //!
         //! Constructor using a @c std::vector of 16-bit characters of any type.
@@ -479,7 +479,7 @@ namespace ts {
         //! @return The equivalent UTF-16 string. Stop on untranslatable character, if any.
         //! @see ETSI EN 300 468, Annex A.
         //!
-        static UString FromDVB(const std::string& dvb, const DVBCharset* charset = 0)
+        static UString FromDVB(const std::string& dvb, const DVBCharset* charset = nullptr)
         {
             return FromDVB(reinterpret_cast<const uint8_t*>(dvb.data()), dvb.size(), charset);
         }
@@ -494,7 +494,7 @@ namespace ts {
         //! @return The equivalent UTF-16 string. Stop on untranslatable character, if any.
         //! @see ETSI EN 300 468, Annex A.
         //!
-        static UString FromDVB(const uint8_t* dvb, size_type dvbSize, const DVBCharset* charset = 0);
+        static UString FromDVB(const uint8_t* dvb, size_type dvbSize, const DVBCharset* charset = nullptr);
 
         //!
         //! Convert a DVB string into UTF-16 (preceded by its one-byte length).
@@ -509,7 +509,7 @@ namespace ts {
         //! @return The equivalent UTF-16 string. Stop on untranslatable character, if any.
         //! @see ETSI EN 300 468, Annex A.
         //!
-        static UString FromDVBWithByteLength(const uint8_t*& buffer, size_t& size, const DVBCharset* charset = 0);
+        static UString FromDVBWithByteLength(const uint8_t*& buffer, size_t& size, const DVBCharset* charset = nullptr);
 
         //!
         //! Encode this UTF-16 string into a DVB string.
@@ -523,7 +523,7 @@ namespace ts {
         //! be represented in the specified character set, an alternative one will be automatically selected.
         //! @return The number of serialized characters (which is usually not the same as the number of written bytes).
         //!
-        size_type toDVB(uint8_t*& buffer, size_t& size, size_type start = 0, size_type count = NPOS, const DVBCharset* charset = 0) const;
+        size_type toDVB(uint8_t*& buffer, size_t& size, size_type start = 0, size_type count = NPOS, const DVBCharset* charset = nullptr) const;
 
         //!
         //! Encode this UTF-16 string into a DVB string.
@@ -533,7 +533,7 @@ namespace ts {
         //! be represented in the specified character set, an alternative one will be automatically selected.
         //! @return The DVB string.
         //!
-        ByteBlock toDVB(size_type start = 0, size_type count = NPOS, const DVBCharset* charset = 0) const;
+        ByteBlock toDVB(size_type start = 0, size_type count = NPOS, const DVBCharset* charset = nullptr) const;
 
         //!
         //! Encode this UTF-16 string into a DVB string (preceded by its one-byte length).
@@ -548,7 +548,7 @@ namespace ts {
         //! be represented in the specified character set, an alternative one will be automatically selected.
         //! @return The number of serialized characters (which is usually not the same as the number of written bytes).
         //!
-        size_type toDVBWithByteLength(uint8_t*& buffer, size_t& size, size_type start = 0, size_type count = NPOS, const DVBCharset* charset = 0) const;
+        size_type toDVBWithByteLength(uint8_t*& buffer, size_t& size, size_type start = 0, size_type count = NPOS, const DVBCharset* charset = nullptr) const;
 
         //!
         //! Encode this UTF-16 string into a DVB string (preceded by its one-byte length).
@@ -558,7 +558,7 @@ namespace ts {
         //! be represented in the specified character set, an alternative one will be automatically selected.
         //! @return The DVB string with the initial length byte.
         //!
-        ByteBlock toDVBWithByteLength(size_type start = 0, size_type count = NPOS, const DVBCharset* charset = 0) const;
+        ByteBlock toDVBWithByteLength(size_type start = 0, size_type count = NPOS, const DVBCharset* charset = nullptr) const;
 
         //!
         //! Assign from a @c std::vector of 16-bit characters of any type.
@@ -857,6 +857,17 @@ namespace ts {
         //!
         template <class CONTAINER>
         void split(CONTAINER& container, UChar separator = COMMA, bool trimSpaces = true, bool removeEmpty = false) const;
+
+        //!
+        //! Split the string into shell-style arguments.
+        //! Spaces are used as argument delimiters.
+        //! Arguments can be quoted using single or double quotes.
+        //! Any character can be escaped using a backslash.
+        //! @tparam CONTAINER A container class of @c UString as defined by the C++ Standard Template Library (STL).
+        //! @param [out] container A container of @c UString which receives the segments of the splitted string.
+        //!
+        template <class CONTAINER>
+        void splitShellStyle(CONTAINER& container) const;
 
         //!
         //! Split a string into segments which are identified by their starting / ending characters (respectively "[" and "]" by default).
@@ -1294,6 +1305,17 @@ namespace ts {
         bool getLine(std::istream& strm);
 
         //!
+        //! Convert a string into a bool value.
+        //!
+        //! This string must contain the representation of an integer value in decimal or hexadecimal
+        //! (prefix @c 0x) or one of "false", "true", "yes", "no", "on", "off" (not case sensitive).
+        //!
+        //! @param [out] value The returned decoded value. On error @a value contains false.
+        //! @return True on success, false on error (invalid string).
+        //!
+        bool toBool(bool& value) const;
+
+        //!
         //! Convert a string into a Tristate value.
         //!
         //! This string must contain the representation of an integer value in decimal or hexadecimal
@@ -1416,6 +1438,19 @@ namespace ts {
                                bool use_upper = true);
 
         //!
+        //! Format a string containing a floating point value.
+        //! @param [in] value The floating point value to format.
+        //! @param [in] width Width of the formatted number, not including the optional prefix and separator.
+        //! @param [in] precision Precision to use after the decimal point.  Default is 6 digits.
+        //! @param [in] force_sign If true, force a '+' sign for positive values.
+        //! @return The formatted string.
+        //!
+        static UString Float(double value,
+                             size_type width = 0,
+                             size_type precision = 6,
+                             bool force_sign = false);
+
+        //!
         //! Format a string using a template and arguments.
         //!
         //! This method is similar in principle to @c printf(). The @a fmt paramter is used as a
@@ -1431,16 +1466,17 @@ namespace ts {
         //! - @c \%d : Integer in decimal. Treated as @c \%s if the argument is a string.
         //! - @c \%x : Integer in lowercase hexadecimal. Treated as @c \%s if the argument is a string.
         //! - @c \%X : Integer in uppercase hexadecimal. Treated as @c \%s if the argument is a string.
+        //! - @c \%f : Floating point value. Treated as @c \%s if the argument is a string.
         //! - @c \%\% : Insert a literal \%.
         //!
         //! The allowed options, between the '\%' and the letter are, in this order:
         //! - @c - : Left-justified (right-justified by default).
-        //! - @c + : Force a '+' sign with positive decimal integers (@c \%d only).
+        //! - @c + : Force a '+' sign with positive decimal integers or floating point values (@c \%d or @c \%f only).
         //! - @c 0 : Zero padding for integers. This is the default with @c \%x and @c \%X.
         //! - @e digits : Minimum field width. This is a display width, not a number of characters for strings.
         //!   With @c \%x or @c \%X, the default width is the "natural" width of the parameter
         //!   (e.g. 8 digits for a @c uint32_t value without thousands separator).
-        //! - @c . @e digits : Starting with a dot. Maximum field width for strings. Ignored for integers.
+        //! - @c . @e digits : Starting with a dot. Maximum field width for strings or precision for floating point values. Ignored for integers.
         //! - @c ' : For integer conversions, use a separator for groups of thousands.
         //! - @c * : Can be used instead of @e digits. The integer value is taken from the argument list.
         //!
@@ -1550,15 +1586,8 @@ namespace ts {
         //! - @c \%c : Matches the next non-space character. The Unicode code point is returned.
         //! - @c \%\% : Matches a literal \%.
         //!
-        //! @param [out] extractedCount The number of successfully extracted values.
-        //! @param [out] endIndex The index in this string after the last extracted value.
-        //! @param [in] fmt Format string with embedded '\%' sequences.
-        //! @param [in] args List of output arguments to receive extracted values.
-        //! The @a args list is built from pointers to integer data of any size, signed or unsigned.
-        //! @return True if the entire string is consumed and the entire format is parsed.
-        //! False otherwise. In other words, the method returns true when this object string
-        //! exactly matches the format in @a fmt.
-        //! @see Format(const UChar*, const std::initializer_list<ArgMixIn>&)
+        //! The allowed options, between the '\%' and the letter are, in this order:
+        //! - @c ' : For decimal integer conversions, ignore separator for groups of thousands.
         //!
         //! @param [out] extractedCount The number of successfully extracted values.
         //! @param [out] endIndex The index in this string after the last extracted value.
@@ -1568,6 +1597,7 @@ namespace ts {
         //! @return True if the entire string is consumed and the entire format is parsed.
         //! False otherwise. In other words, the method returns true when this object string
         //! exactly matches the format in @a fmt.
+        //! @see Format(const UChar*, const std::initializer_list<ArgMixIn>&)
         //!
         bool scan(size_t& extractedCount, size_type& endIndex, const UChar* fmt, const std::initializer_list<ArgMixOut>& args) const;
 
@@ -1870,7 +1900,7 @@ namespace ts {
 
 #if defined(TS_ALLOW_IMPLICIT_UTF8_CONVERSION)
         bool operator==(const std::string& other) const { return operator==(FromUTF8(other)); }
-        bool operator==(const char* other) const { return other != 0 && operator==(FromUTF8(other)); }
+        bool operator==(const char* other) const { return other != nullptr && operator==(FromUTF8(other)); }
         bool operator!=(const std::string& other) const { return !operator==(other); }
         bool operator!=(const char* other) const { return !operator==(other); }
 

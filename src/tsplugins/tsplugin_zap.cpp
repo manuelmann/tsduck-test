@@ -38,6 +38,7 @@
 #include "tsService.h"
 #include "tsSectionDemux.h"
 #include "tsCyclingPacketizer.h"
+#include "tsEITProcessor.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
 #include "tsCAT.h"
@@ -55,6 +56,7 @@ namespace ts {
     public:
         // Implementation of plugin API
         ZapPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
         virtual Status processPacket(TSPacket&, bool&, bool&) override;
 
@@ -75,10 +77,12 @@ namespace ts {
         bool              _abort;              // Error (service not found, etc)
         Service           _service;            // Service name & id
         UString           _audio;              // Audio language code to keep
+        PID               _audio_pid;          // Audio PID to keep
         UString           _subtitles;          // Subtitles language code to keep
         bool              _no_subtitles;       // Remove all subtitles
         bool              _no_ecm;             // Remove all ECM PIDs
         bool              _include_cas;        // Include CAS info (CAT & EMM)
+        bool              _include_eit;        // Include EIT's for the specified service
         bool              _pes_only;           // Keep PES streams only
         Status            _drop_status;        // Status for dropped packets
         uint8_t           _pid_state[PID_MAX]; // Status of each PID.
@@ -86,6 +90,7 @@ namespace ts {
         CyclingPacketizer _pzer_sdt;           // Packetizer for modified SDT
         CyclingPacketizer _pzer_pat;           // Packetizer for modified PAT
         CyclingPacketizer _pzer_pmt;           // Packetizer for modified PMT
+        EITProcessor      _eit_process;        // Modify EIT's
 
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
@@ -120,16 +125,19 @@ ts::ZapPlugin::ZapPlugin(TSP* tsp_) :
     _abort(false),
     _service(),
     _audio(),
+    _audio_pid(PID_NULL),
     _subtitles(),
     _no_subtitles(false),
     _no_ecm (false),
-    _include_cas (false),
+    _include_cas(false),
+    _include_eit(false),
     _pes_only(false),
     _drop_status(TSP_DROP),
     _demux(this),
     _pzer_sdt(PID_SDT, CyclingPacketizer::ALWAYS),
     _pzer_pat(PID_PAT, CyclingPacketizer::ALWAYS),
-    _pzer_pmt(PID_NULL, CyclingPacketizer::ALWAYS)
+    _pzer_pmt(PID_NULL, CyclingPacketizer::ALWAYS),
+    _eit_process(PID_EIT, tsp_)
 {
     option(u"", 0, STRING, 1, 1);
     help(u"",
@@ -142,13 +150,26 @@ ts::ZapPlugin::ZapPlugin(TSP* tsp_) :
     option(u"audio", 'a', STRING);
     help(u"audio",
          u"Remove all audio components except the specified one. The name is a "
-         u"three-letters language code. By default, keep all audio components.");
+         u"three-letters language code. By default, keep all audio components. "
+         u"This option and the --audio-pid option are mutually exclusive.");
+
+    option(u"audio-pid", 0, PIDVAL);
+    help(u"audio-pid",
+         u"Remove all audio components except the specified audio PID. By default, "
+         u"keep all audio components. "
+         u"This option and the --audio option are mutually exclusive.");
 
     option(u"cas", 'c');
     help(u"cas",
          u"Keep Conditional Access System sections (CAT and EMM's). "
          u"Remove them by default. Note that the ECM's for the specified "
          u"service are always kept.");
+
+    option(u"eit");
+    help(u"eit",
+        u"Keep EIT sections for the specified service. "
+        u"EIT sections for other services are removed. "
+        u"By default, all EIT's are removed.");
 
     option(u"no-ecm", 'e');
     help(u"no-ecm",
@@ -176,21 +197,37 @@ ts::ZapPlugin::ZapPlugin(TSP* tsp_) :
 
 
 //----------------------------------------------------------------------------
+// Get options method
+//----------------------------------------------------------------------------
+
+bool ts::ZapPlugin::getOptions()
+{
+    if (present(u"audio") + present(u"audio-pid") > 1) {
+        tsp->error(u"options --audio and --audio-pid are mutually exclusive");
+        return false;
+    }
+
+    _service.set(value(u""));
+    _audio = value(u"audio");
+    _audio_pid = intValue<PID>(u"audio-pid", PID_NULL, 0);
+    _subtitles = value(u"subtitles");
+    _no_subtitles = present(u"no-subtitles");
+    _no_ecm = present(u"no-ecm");
+    _include_cas = present(u"cas");
+    _include_eit = present(u"eit");
+    _pes_only = present(u"pes-only");
+    _drop_status = present(u"stuffing") ? TSP_NULL : TSP_DROP;
+
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
 // Start method
 //----------------------------------------------------------------------------
 
 bool ts::ZapPlugin::start()
 {
-    // Get option values
-    _service.set (value(u""));
-    _audio = value(u"audio");
-    _subtitles = value(u"subtitles");
-    _no_subtitles = present(u"no-subtitles");
-    _no_ecm = present(u"no-ecm");
-    _include_cas = present(u"cas");
-    _pes_only = present(u"pes-only");
-    _drop_status = present(u"stuffing") ? TSP_NULL : TSP_DROP;
-
     // All PIDs are dropped by default.
     // Selected PIDs will be added when discovered.
     ::memset(_pid_state, TSPID_DROP, sizeof(_pid_state));
@@ -218,6 +255,12 @@ bool ts::ZapPlugin::start()
         _pid_state[PID_CAT] = TSPID_PASS;
     }
 
+    // Configure the EIT processor to keep only the selected service.
+    _eit_process.reset();
+    if (_service.hasId()) {
+        _eit_process.keepService(_service);
+    }
+
     // Reset other states
     _abort = false;
     _pzer_pat.reset();
@@ -232,7 +275,7 @@ bool ts::ZapPlugin::start()
 // Invoked by the demux when a complete table is available.
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::handleTable (SectionDemux& demux, const BinaryTable& table)
+void ts::ZapPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 {
     switch (table.tableId()) {
 
@@ -288,7 +331,7 @@ void ts::ZapPlugin::handleTable (SectionDemux& demux, const BinaryTable& table)
 //  all descriptors for the service).
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::processSDT (SDT& sdt)
+void ts::ZapPlugin::processSDT(SDT& sdt)
 {
     // Look for the service by name or by service
 
@@ -305,7 +348,7 @@ void ts::ZapPlugin::processSDT (SDT& sdt)
 
     // If service not found in SDT and not already found in PAT, error
 
-    if (!found && !_service.hasId (service_id)) {
+    if (!found && !_service.hasId(service_id)) {
         tsp->error(u"service \"%s\" not found in SDT", {_service.getName()});
         _abort = true;
         return;
@@ -314,7 +357,7 @@ void ts::ZapPlugin::processSDT (SDT& sdt)
     // If the service id was previously unknown wait for the PAT.
     // If a service id was known but was different, we need to rescan the PAT.
 
-    if (!_service.hasId (service_id)) {
+    if (!_service.hasId(service_id)) {
 
         if (_service.hasId()) {
             // The service was previously known but has changed its service id.
@@ -333,12 +376,15 @@ void ts::ZapPlugin::processSDT (SDT& sdt)
             }
         }
 
-        _service.setId (service_id);
+        _service.setId(service_id);
         _service.clearPMTPID();
+
+        // Reset the EIT processor.
+        _eit_process.reset();
+        _eit_process.keepService(service_id);
 
         // Packets from PAT PID are analyzed but not passed. When a complete
         // PAT is read, a modified PAT will be transmitted.
-
         _demux.addPID (PID_PAT);
         _pid_state[PID_PAT] = TSPID_DROP;
 
@@ -379,12 +425,12 @@ void ts::ZapPlugin::processSDT (SDT& sdt)
 //  This method processes a Program Association Table (PAT).
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::processPAT (PAT& pat)
+void ts::ZapPlugin::processPAT(PAT& pat)
 {
     // Locate the service in the PAT
 
-    assert (_service.hasId());
-    PAT::ServiceMap::iterator it = pat.pmts.find (_service.getId());
+    assert(_service.hasId());
+    PAT::ServiceMap::iterator it = pat.pmts.find(_service.getId());
 
     // If service not found, error
 
@@ -397,7 +443,7 @@ void ts::ZapPlugin::processPAT (PAT& pat)
     // If the PMT PID was previously unknown wait for the PMT.
     // If the PMT PID was known but was different, we need to rescan the PMT.
 
-    if (!_service.hasPMTPID (it->second)) {
+    if (!_service.hasPMTPID(it->second)) {
 
         if (_service.hasPMTPID()) {
             // The PMT PID was previously known but has changed.
@@ -447,7 +493,7 @@ void ts::ZapPlugin::processPAT (PAT& pat)
 //  This method processes a Program Map Table (PMT).
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::processPMT (PMT& pmt)
+void ts::ZapPlugin::processPMT(PMT& pmt)
 {
     // Record the PCR PID as a PES component of the service
 
@@ -497,6 +543,10 @@ void ts::ZapPlugin::processPMT (PMT& pmt)
                 pmt.streams.erase (pid);
                 continue;
             }
+            else if ((_audio_pid != PID_NULL) && (pid != _audio_pid)) {
+                pmt.streams.erase(pid);
+                continue;
+            }
             else {
                 audio_out++;
             }
@@ -530,6 +580,11 @@ void ts::ZapPlugin::processPMT (PMT& pmt)
         _abort = true;
         return;
     }
+    else if ((_audio_pid != PID_NULL) && (audio_in > 0) && (audio_out == 0)) {
+        tsp->error(u"audio pid \"%d\" not found in PMT", {int32_t(_audio_pid)});
+        _abort = true;
+        return;
+    }
 
     // Build the list of TS packets containing the new PMT.
     // These packets will replace everything on the PMT PID.
@@ -549,7 +604,7 @@ void ts::ZapPlugin::processPMT (PMT& pmt)
 //  This method processes a Conditional Access Table (CAT).
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::processCAT (CAT& cat)
+void ts::ZapPlugin::processCAT(CAT& cat)
 {
     // Erase all previously known EMM PIDs
     for (size_t pid = 0; pid < PID_MAX; pid++) {
@@ -568,7 +623,7 @@ void ts::ZapPlugin::processCAT (CAT& cat)
 // are referenced in CA descriptors are set with the specified state.
 //----------------------------------------------------------------------------
 
-void ts::ZapPlugin::analyzeCADescriptors (const DescriptorList& dlist, uint8_t pid_state)
+void ts::ZapPlugin::analyzeCADescriptors(const DescriptorList& dlist, uint8_t pid_state)
 {
     // Loop on all CA descriptors
 
@@ -626,16 +681,23 @@ void ts::ZapPlugin::analyzeCADescriptors (const DescriptorList& dlist, uint8_t p
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::ZapPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::ZapPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
 {
     const PID pid = pkt.getPID();
 
     // Filter interesting sections
-    _demux.feedPacket (pkt);
+    _demux.feedPacket(pkt);
 
     // If a fatal error occured during section analysis, give up.
     if (_abort) {
         return TSP_END;
+    }
+
+    // Process EIT's (at least when the service id is known).
+    if (_include_eit && pid == PID_EIT && _service.hasId()) {
+        _eit_process.processPacket(pkt);
+        // If the EIT packet has been nullified, we may have to remove it.
+        return pkt.getPID() == PID_NULL ? _drop_status : TSP_OK;
     }
 
     // Remove all non-PES packets if option --pes-only

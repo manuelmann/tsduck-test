@@ -136,7 +136,7 @@ bool DumpUDP(Options& opt)
 
         // Wait for a UDP message
         size_t insize = 0;
-        ok = opt.udp.receive(packet.data(), packet.size(), insize, sender, destination, 0, opt);
+        ok = opt.udp.receive(packet.data(), packet.size(), insize, sender, destination, nullptr, opt);
 
         // Check packet.
         assert(insize <= packet.size());
@@ -193,16 +193,17 @@ bool DumpFile(Options& opt, const ts::UString& file_name)
     }
 
     // Load all sections
+    bool ok = false;
     ts::SectionFile file;
-    bool ok;
+    file.setDefaultCharset(opt.display.default_charset);
 
     if (file_name.empty()) {
         // no input file specified, use standard input
         SetBinaryModeStdin(opt);
-        ok = file.loadBinary(std::cin, opt, ts::CRC32::IGNORE);
+        ok = file.loadBinary(std::cin, opt);
     }
     else {
-        ok = file.loadBinary(file_name, opt, ts::CRC32::IGNORE);
+        ok = file.loadBinary(file_name, opt);
     }
 
     if (ok) {

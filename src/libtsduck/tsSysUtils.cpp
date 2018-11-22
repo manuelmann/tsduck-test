@@ -216,7 +216,7 @@ ts::UString ts::ExecutableFile()
 
     // Window implementation.
     std::array<::WCHAR, 2048> name;
-    ::DWORD length = ::GetModuleFileNameW(NULL, name.data(), ::DWORD(name.size()));
+    ::DWORD length = ::GetModuleFileNameW(nullptr, name.data(), ::DWORD(name.size()));
     return UString(name, length);
 
 #elif defined(TS_LINUX)
@@ -313,7 +313,7 @@ bool ts::IsPrivilegedUser()
     ::PSID AdministratorsGroup;
     ::BOOL ok = ::AllocateAndInitializeSid(&NtAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &AdministratorsGroup);
     if (ok) {
-        if (!::CheckTokenMembership(NULL, AdministratorsGroup, &ok)) {
+        if (!::CheckTokenMembership(nullptr, AdministratorsGroup, &ok)) {
             ok = FALSE;
         }
         ::FreeSid(AdministratorsGroup);
@@ -330,7 +330,7 @@ bool ts::IsPrivilegedUser()
 ts::ErrorCode ts::CreateDirectory(const UString& path)
 {
 #if defined(TS_WINDOWS)
-    return ::CreateDirectoryW(path.wc_str(), NULL) == 0 ? ::GetLastError() : SYS_SUCCESS;
+    return ::CreateDirectoryW(path.wc_str(), nullptr) == 0 ? ::GetLastError() : SYS_SUCCESS;
 #else
     return ::mkdir(path.toUTF8().c_str(), 0777) < 0 ? errno : SYS_SUCCESS;
 #endif
@@ -565,7 +565,7 @@ ts::UString ts::ErrorCodeMessage(ts::ErrorCode code)
 #else
     // GNU version, strerror_r returns char*, not necessarilly in buffer
     result = strerror_r(code, message, sizeof(message));
-    const bool found = result != NULL;
+    const bool found = result != nullptr;
 #endif
 
     if (found) {
@@ -660,7 +660,7 @@ void ts::GetProcessMetrics(ProcessMetrics& metrics)
 
     static const char filename[] = "/proc/self/stat";
     FILE* fp = fopen(filename, "r");
-    if (fp == 0) {
+    if (fp == nullptr) {
         throw ts::Exception(UString::Format(u"error opening %s", {filename}), errno);
         return;
     }
@@ -800,7 +800,7 @@ bool ts::EnvironmentExists(const UString& name)
     return ::GetEnvironmentVariableW(name.wc_str(), unused.data(), ::DWORD(unused.size())) != 0;
 #else
     // Flawfinder: ignore: Environment variables are untrustable input.
-    return ::getenv(name.toUTF8().c_str()) != 0;
+    return ::getenv(name.toUTF8().c_str()) != nullptr;
 #endif
 }
 
@@ -826,7 +826,7 @@ ts::UString ts::GetEnvironment(const UString& name, const UString& def)
 #else
     // Flawfinder: ignore: Environment variables are untrustable input.
     const char* value = ::getenv(name.toUTF8().c_str());
-    return value != 0 ? UString::FromUTF8(value) : def;
+    return value != nullptr ? UString::FromUTF8(value) : def;
 #endif
 }
 
@@ -857,7 +857,7 @@ bool ts::DeleteEnvironment(const UString& name)
     Guard lock(EnvironmentMutex::Instance());
 
 #if defined(TS_WINDOWS)
-    return ::SetEnvironmentVariableW(name.wc_str(), NULL) != 0;
+    return ::SetEnvironmentVariableW(name.wc_str(), nullptr) != 0;
 #else
     // In case of error, unsetenv(3) is documented to return -1 but and set errno.
     // It is also documented to silently ignore non-existing variables.
@@ -1002,7 +1002,7 @@ void ts::GetEnvironment(Environment& env)
 
 #else
 
-    for (char** p = ::environ; *p != 0; ++p) {
+    for (char** p = ::environ; *p != nullptr; ++p) {
         AddNameValue(env, UString::FromUTF8(*p), true);
     }
 

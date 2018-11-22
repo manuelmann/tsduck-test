@@ -62,7 +62,7 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        AC3Descriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        AC3Descriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         //!
         //! Merge inside this object missing information which can be found in other object.
@@ -71,8 +71,8 @@ namespace ts {
         void merge(const AC3Descriptor& other);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

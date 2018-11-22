@@ -28,6 +28,7 @@
 //----------------------------------------------------------------------------
 
 #include "tstlvLogger.h"
+TSDUCK_SOURCE;
 
 
 //----------------------------------------------------------------------------
@@ -35,7 +36,7 @@
 //----------------------------------------------------------------------------
 
 ts::tlv::Logger::Logger(int default_level, Report* default_report) :
-    _report(default_report != 0 ? default_report : NullReport::Instance()),
+    _report(default_report != nullptr ? default_report : NullReport::Instance()),
     _default_level(default_level),
     _levels()
 {
@@ -65,7 +66,7 @@ void ts::tlv::Logger::resetSeverities(int default_level)
 
 void ts::tlv::Logger::log(const Message& msg, const UString& comment, Report* report)
 {
-    Report* rep = report != 0 ? report : _report;
+    Report* rep = report != nullptr ? report : _report;
     const int level = severity(msg.tag());
     if (rep->maxSeverity() >= level) {
         const UString dump(msg.dump(4));

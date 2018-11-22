@@ -322,8 +322,8 @@ ts::ScramblerPlugin::ScramblerPlugin(TSP* tsp_) :
          u"while keeping the service mostly scrambled.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Scramble packets with this PID value. Several -p or --pid options may be "
+    help(u"pid", u"pid1[-pid2]",
+         u"Scramble packets with these PID values. Several -p or --pid options may be "
          u"specified. By default, scramble the specified service.");
 
     option(u"pid-ecm", 0, PIDVAL);
@@ -364,7 +364,7 @@ bool ts::ScramblerPlugin::getOptions()
     // Plugin parameters.
     _use_service = present(u"");
     _service.set(value(u""));
-    getPIDSet(_scrambled_pids, u"pid");
+    getIntValues(_scrambled_pids, u"pid");
     _synchronous_ecmg = present(u"synchronous") || !tsp->realtime();
     _component_level = present(u"component-level");
     _scramble_audio = !present(u"no-audio");
@@ -845,7 +845,7 @@ ts::ProcessorPlugin::Status ts::ScramblerPlugin::processPacket(TSPacket& pkt, bo
 //----------------------------------------------------------------------------
 
 ts::ScramblerPlugin::CryptoPeriod::CryptoPeriod() :
-    _plugin(0),
+    _plugin(nullptr),
     _cp_number(0),
     _ecm_ok(false),
     _ecm(),

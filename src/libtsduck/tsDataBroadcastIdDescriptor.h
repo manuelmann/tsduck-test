@@ -61,7 +61,7 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        DataBroadcastIdDescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        DataBroadcastIdDescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         //!
         //! Static method to display a data broadcast selector bytes.
@@ -74,8 +74,8 @@ namespace ts {
         static void DisplaySelectorBytes(TablesDisplay& display, const uint8_t* data, size_t size, int indent, uint16_t dbid);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

@@ -32,9 +32,10 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPushInputPlugin.h"
+#include "tsAbstractHTTPInputPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsWebRequest.h"
+#include "tsWebRequestArgs.h"
 #include "tsSysUtils.h"
 TSDUCK_SOURCE;
 
@@ -46,26 +47,20 @@ TSDUCK_SOURCE;
 //----------------------------------------------------------------------------
 
 namespace ts {
-    class HttpInput: public PushInputPlugin, private WebRequestHandlerInterface
+    class HttpInput: public AbstractHTTPInputPlugin
     {
     public:
         // Implementation of plugin API
         HttpInput(TSP*);
         virtual bool getOptions() override;
-        virtual bool start() override;
         virtual void processInput() override;
 
-        // Implementation of WebRequestHandlerInterface
-        virtual bool handleWebStart(const WebRequest& request, size_t size) override;
-        virtual bool handleWebData(const WebRequest& request, const void* data, size_t size) override;
-
     private:
-        size_t      _repeat_count;
-        bool        _ignore_errors;
-        MilliSecond _reconnect_delay;
-        WebRequest  _request;
-        TSPacket    _partial;       // Buffer for incomplete packets.
-        size_t      _partial_size;  // Number of bytes in partial.
+        size_t         _repeat_count;
+        bool           _ignore_errors;
+        MilliSecond    _reconnect_delay;
+        WebRequest     _request;
+        WebRequestArgs _web_args;
 
         // Inaccessible operations
         HttpInput() = delete;
@@ -83,22 +78,18 @@ TSPLUGIN_DECLARE_INPUT(http, ts::HttpInput)
 //----------------------------------------------------------------------------
 
 ts::HttpInput::HttpInput(TSP* tsp_) :
-    PushInputPlugin(tsp_, u"Read a transport stream from an HTTP server", u"[options] url"),
+    AbstractHTTPInputPlugin(tsp_, u"Read a transport stream from an HTTP server", u"[options] url"),
     _repeat_count(0),
     _ignore_errors(false),
     _reconnect_delay(0),
     _request(*tsp),
-    _partial(),
-    _partial_size(0)
+    _web_args()
 {
+    _web_args.defineOptions(*this);
+
     option(u"", 0, STRING, 1, 1);
     help(u"",
          u"Specify the URL from which to read the transport stream.");
-
-    option(u"connection-timeout", 0, POSITIVE);
-    help(u"connection-timeout",
-         u"Specify the connection timeout in milliseconds. By default, let the "
-         u"operating system decide.");
 
     option(u"ignore-errors");
     help(u"ignore-errors",
@@ -115,28 +106,6 @@ ts::HttpInput::HttpInput(TSP* tsp_) :
          u"Specify the maximum number of queued TS packets before their "
          u"insertion into the stream. The default is " +
          UString::Decimal(DEFAULT_MAX_QUEUED_PACKETS) + u".");
-
-    option(u"proxy-host", 0, STRING);
-    help(u"proxy-host", u"name",
-         u"Optional proxy host name for Internet access.");
-
-    option(u"proxy-password", 0, STRING);
-    help(u"proxy-password", u"string",
-         u"Optional proxy password for Internet access (for use with --proxy-user).");
-
-    option(u"proxy-port", 0, UINT16);
-    help(u"proxy-port",
-         u"Optional proxy port for Internet access (for use with --proxy-host).");
-
-    option(u"proxy-user", 0, STRING);
-    help(u"proxy-user", u"name",
-         u"Optional proxy user name for Internet access.");
-
-    option(u"receive-timeout", 0, POSITIVE);
-    help(u"receive-timeout",
-         u"Specify the data reception timeout in milliseconds. This timeout applies "
-         u"to each receive operation, individually. By default, let the operating "
-         u"system decide.");
 
     option(u"reconnect-delay", 0, UNSIGNED);
     help(u"reconnect-delay",
@@ -161,6 +130,7 @@ bool ts::HttpInput::getOptions()
     _repeat_count = intValue<size_t>(u"repeat", present(u"infinite") ? std::numeric_limits<size_t>::max() : 1);
     _reconnect_delay = intValue<MilliSecond>(u"reconnect-delay", 0);
     _ignore_errors = present(u"ignore-errors");
+    _web_args.loadArgs(*this);
 
     // Resize the inter-thread packet queue.
     setQueueSize(intValue<size_t>(u"max-queue", DEFAULT_MAX_QUEUED_PACKETS));
@@ -168,26 +138,9 @@ bool ts::HttpInput::getOptions()
     // Prepare web request.
     _request.setURL(value(u""));
     _request.setAutoRedirect(true);
-    _request.setProxyHost(value(u"proxy-host"), intValue<uint16_t>(u"proxy-port"));
-    _request.setProxyUser(value(u"proxy-user"), value(u"proxy-password"));
-    if (present(u"connection-timeout")) {
-        _request.setConnectionTimeout(intValue<MilliSecond>(u"connection-timeout"));
-    }
+    _request.setArgs(_web_args);
 
     return true;
-}
-
-
-//----------------------------------------------------------------------------
-// Start method
-//----------------------------------------------------------------------------
-
-bool ts::HttpInput::start()
-{
-    _partial_size = 0;
-
-    // Invoke superclass.
-    return PushInputPlugin::start();
 }
 
 
@@ -200,7 +153,7 @@ void ts::HttpInput::processInput()
     bool ok = true;
 
     // Loop on request count.
-    for (size_t count = 0; count < _repeat_count && (ok || _ignore_errors); count++) {
+    for (size_t count = 0; count < _repeat_count && (ok || _ignore_errors) && !tsp->aborting(); count++) {
         // Wait between reconnections.
         if (count > 0 && _reconnect_delay > 0) {
             SleepThread(_reconnect_delay);
@@ -208,80 +161,4 @@ void ts::HttpInput::processInput()
         // Perform one download.
         ok = _request.downloadToApplication(this);
     }
-}
-
-
-//----------------------------------------------------------------------------
-// This hook is invoked at the beginning of the transfer.
-//----------------------------------------------------------------------------
-
-bool ts::HttpInput::handleWebStart(const WebRequest& request, size_t size)
-{
-    // Get complete MIME type.
-    const UString mime(request.reponseHeader(u"Content-Type"));
-
-    // Get initial type, before ';'.
-    UStringVector types;
-    mime.split(types, u';');
-    types.resize(1);
-
-    // Print a message.
-    tsp->verbose(u"downloading from %s", {request.finalURL()});
-    tsp->verbose(u"MIME type: %s, expected size: %s", {mime.empty() ? u"unknown" : mime, size == 0 ? u"unknown" : UString::Format(u"%d bytes", {size})});
-    if (!types[0].empty() && !types[0].similar(u"video/mp2t")) {
-        tsp->warning(u"MIME type is %d, maybe not a valid transport stream", {types[0]});
-    }
-
-    // Reinitialize partial packet if some bytes were left from a previous iteration.
-    _partial_size = 0;
-    return true;
-}
-
-
-//----------------------------------------------------------------------------
-// This hook is invoked when a data chunk is available.
-//----------------------------------------------------------------------------
-
-bool ts::HttpInput::handleWebData(const WebRequest& request, const void* addr, size_t size)
-{
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(addr);
-
-    // If a partial packet is present, try to fill it.
-    if (_partial_size > 0) {
-        // Copy more data into partial packet.
-        assert(_partial_size <= PKT_SIZE);
-        const size_t more = std::min(size, PKT_SIZE - _partial_size);
-        ::memcpy(_partial.b + _partial_size, data, more);
-
-        data += more;
-        size -= more;
-        _partial_size += more;
-
-        // If the partial packet is full, push it.
-        if (_partial_size == PKT_SIZE) {
-            if (!pushPackets(&_partial, 1)) {
-                tsp->debug(u"error pushing packets");
-                return false;
-            }
-            _partial_size = 0;
-        }
-    }
-
-    // Compute number of complete packets to push.
-    const size_t residue = size % PKT_SIZE;
-    const size_t count = (size - residue) / PKT_SIZE;
-
-    // Push complete packets.
-    if (count > 0 && !pushPackets(reinterpret_cast<const TSPacket*>(data), count)) {
-        tsp->debug(u"error pushing packets");
-        return false;
-    }
-
-    // Save residue in partial packet.
-    if (residue > 0) {
-        ::memcpy(_partial.b, data + size - residue, residue);
-        _partial_size = residue;
-    }
-
-    return true;
 }

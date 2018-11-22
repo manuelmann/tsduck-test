@@ -59,6 +59,10 @@ ts::TSAnalyzer::TSAnalyzer(BitRate bitrate_hint) :
     _global_scr_pids(0),
     _global_pkt_cnt(0),
     _global_bitrate(0),
+    _psisi_pid_cnt(0),
+    _psisi_scr_pids(0),
+    _psisi_pkt_cnt(0),
+    _psisi_bitrate(0),
     _unref_pid_cnt(0),
     _unref_scr_pids(0),
     _unref_pkt_cnt(0),
@@ -88,19 +92,16 @@ ts::TSAnalyzer::TSAnalyzer(BitRate bitrate_hint) :
     _preceding_suspects(0),
     _min_error_before_suspect(1),
     _max_consecutive_suspects(1),
-    _default_charset(0),
+    _default_charset(nullptr),
     _demux(this, this),
     _pes_demux(this),
     _t2mi_demux(this)
 {
     // Specify the PID filters to collect PSI tables.
-    _demux.addPID(PID_PAT);
-    _demux.addPID(PID_CAT);
-    _demux.addPID(PID_TSDT);
-    _demux.addPID(PID_NIT);
-    _demux.addPID(PID_RST);
-    _demux.addPID(PID_SDT);  // also BAT
-    _demux.addPID(PID_TDT);  // also TOT
+    // Start with all MPEG/DVB reserved PID's.
+    for (PID pid = 0; pid <= PID_DVB_LAST; ++pid) {
+        _demux.addPID(pid);
+    }
 }
 
 
@@ -134,6 +135,10 @@ void ts::TSAnalyzer::reset()
     _global_scr_pids = 0;
     _global_pkt_cnt = 0;
     _global_bitrate = 0;
+    _psisi_pid_cnt = 0;
+    _psisi_scr_pids = 0;
+    _psisi_pkt_cnt = 0;
+    _psisi_bitrate = 0;
     _unref_pid_cnt = 0;
     _unref_scr_pids = 0;
     _unref_pkt_cnt = 0;
@@ -164,10 +169,10 @@ void ts::TSAnalyzer::reset()
     _pes_demux.reset();
 
     // Specify the PID filters to collect PSI tables.
-    _demux.addPID(PID_PAT);
-    _demux.addPID(PID_CAT);
-    _demux.addPID(PID_SDT);  // also BAT
-    _demux.addPID(PID_TDT);  // also TOT
+    // Start with all MPEG/DVB reserved PID's.
+    for (PID pid = 0; pid <= PID_DVB_LAST; ++pid) {
+        _demux.addPID(pid);
+    }
 }
 
 
@@ -322,15 +327,6 @@ ts::TSAnalyzer::PIDContext::PIDContext(PID pid_, const UString& description_) :
 
 
 //----------------------------------------------------------------------------
-// Destructor for the PID context
-//----------------------------------------------------------------------------
-
-ts::TSAnalyzer::PIDContext::~PIDContext()
-{
-}
-
-
-//----------------------------------------------------------------------------
 // Constructor for the ETID context
 //----------------------------------------------------------------------------
 
@@ -346,15 +342,6 @@ ts::TSAnalyzer::ETIDContext::ETIDContext(const ETID& etid_) :
     versions(),
     first_pkt(0),
     last_pkt(0)
-{
-}
-
-
-//----------------------------------------------------------------------------
-// Destructor for the ETID context
-//----------------------------------------------------------------------------
-
-ts::TSAnalyzer::ETIDContext::~ETIDContext()
 {
 }
 
@@ -429,7 +416,7 @@ ts::TSAnalyzer::ETIDContextPtr ts::TSAnalyzer::getETID(const Section& section)
     }
     else {
         ETIDContextPtr result(new ETIDContext(etid));
-        pc->sections [etid] = result;
+        pc->sections[etid] = result;
         result->first_version = section.version();
         return result;
     }
@@ -802,7 +789,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_LANGUAGE: {
-                if (size >= 4 && ps != 0) {
+                if (size >= 4 && ps != nullptr) {
                     // First 3 bytes contains the audio language
                     ps->language = UString::FromDVB(data, 3);
                     // Next byte contains audio type, 0 is the default
@@ -817,7 +804,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_AC3: {
-                if (ps != 0) {
+                if (ps != nullptr) {
                     // The presence of this descriptor indicates an AC-3 audio track.
                     ps->description = u"AC-3 Audio";
                     ps->carry_audio = true;
@@ -825,7 +812,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_ENHANCED_AC3: {
-                if (ps != 0) {
+                if (ps != nullptr) {
                     // The presence of this descriptor indicates an Enhanced AC-3 audio track.
                     ps->description = u"E-AC-3 Audio";
                     ps->carry_audio = true;
@@ -833,7 +820,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_AAC: {
-                if (ps != 0) {
+                if (ps != nullptr) {
                     // The presence of this descriptor indicates an HE-AAC audio track.
                     ps->description = u"HE-AAC Audio";
                     ps->carry_audio = true;
@@ -841,7 +828,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_DTS: {
-                if (ps != 0) {
+                if (ps != nullptr) {
                     // The presence of this descriptor indicates a DTS audio track.
                     ps->description = u"DTS Audio";
                     ps->carry_audio = true;
@@ -849,7 +836,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_SUBTITLING: {
-                if (size >= 4 && ps != 0) {
+                if (size >= 4 && ps != nullptr) {
                     // First 3 bytes contains the language
                     ps->language = UString::FromDVB(data, 3);
                     // Next byte contains subtitling type
@@ -861,7 +848,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_TELETEXT: {
-                if (size >= 4 && ps != 0) {
+                if (size >= 4 && ps != nullptr) {
                     // First 3 bytes contains the language
                     ps->language = UString::FromDVB(data, 3);
                     // Next byte contains teletext type
@@ -873,7 +860,7 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                 break;
             }
             case DID_APPLI_SIGNALLING: {
-                if (ps != 0) {
+                if (ps != nullptr) {
                     // The presence of this descriptor indicates a PID carrying an AIT.
                     ps->comment = u"AIT";
                 }
@@ -917,11 +904,11 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                             // System Software Update(SSU, ETSI TS 102 006)
                             // Skip data_broadcast_id, already checked == 0x000A
                             data += 2; size -= 2;
-                            if (svp != 0) {
+                            if (svp != nullptr) {
                                 // Mark the service as carrying SSU
                                 svp->carry_ssu = true;
                             }
-                            if (ps != 0 && size >= 1) {
+                            if (ps != nullptr && size >= 1) {
                                 // Rest of descriptor is a system_software_update_info structure.
                                 // Store the list of OUI's in PID context.
                                 // OUI_data_length:
@@ -948,27 +935,27 @@ void ts::TSAnalyzer::analyzeDescriptors(const DescriptorList& descs, ServiceCont
                         }
                         case 0x0005: {
                             // Multi-Protocol Encapsulation.
-                            if (ps != 0) {
+                            if (ps != nullptr) {
                                 ps->comment = u"MPE";
                             }
                             break;
                         }
                         case 0x000B: {
                             // IP/MAC Notification Table.
-                            if (ps != 0) {
+                            if (ps != nullptr) {
                                 ps->comment = u"INT";
                             }
                             break;
                         }
                         case 0x0123: {
                             // HbbTV data carousel.
-                            if (ps != 0) {
+                            if (ps != nullptr) {
                                 ps->comment = u"HbbTV";
                             }
                             break;
                         }
                         default: {
-                            if (ps != 0) {
+                            if (ps != nullptr) {
                                 ps->comment =  names::DataBroadcastId(dbid);
                             }
                             break;
@@ -1007,7 +994,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
     data += 4; size -= 4;
 
     // Process CA descriptor private data
-    if (cas == CAS_MEDIAGUARD && svp != 0 && size >= 13) {
+    if (cas == CAS_MEDIAGUARD && svp != nullptr && size >= 13) {
 
         // MediaGuard CA descriptor in a PMT
         data -= 2; size += 2;
@@ -1027,7 +1014,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         }
     }
 
-    else if (cas == CAS_MEDIAGUARD && svp == 0 && size == 4) {
+    else if (cas == CAS_MEDIAGUARD && svp == nullptr && size == 4) {
 
         // MediaGuard CA descriptor in the CAT, new format
         uint16_t etypes(GetUInt16(data));
@@ -1042,7 +1029,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         eps->description.format(u"MediaGuard EMM for OPI %d (0x%X), EMM types: 0x%X", {opi, opi, etypes});
     }
 
-    else if (cas == CAS_MEDIAGUARD && svp == 0 && size >= 1) {
+    else if (cas == CAS_MEDIAGUARD && svp == nullptr && size >= 1) {
 
         // MediaGuard CA descriptor in the CAT, old format
         uint8_t nb_opi = data[0];
@@ -1070,7 +1057,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         }
     }
 
-    else if (cas == CAS_SAFEACCESS && svp == 0 && size >= 1) {
+    else if (cas == CAS_SAFEACCESS && svp == nullptr && size >= 1) {
 
         // SafeAccess CA descriptor in the CAT
         data++; size --; // skip applicable EMM bitmask
@@ -1104,7 +1091,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         eps->carry_section = true;
         _demux.addPID(ca_pid);
 
-        if (svp == 0) {
+        if (svp == nullptr) {
             // No service, this is an EMM PID
             eps->carry_emm = true;
             eps->description = u"Viaccess EMM";
@@ -1146,7 +1133,7 @@ void ts::TSAnalyzer::analyzeCADescriptor(const Descriptor& desc, ServiceContext*
         eps->carry_section = true;
         _demux.addPID(ca_pid);
 
-        if (svp == 0) {
+        if (svp == nullptr) {
             // No service, this is an EMM PID
             eps->carry_emm = true;
             eps->description = names::CASId(ca_sysid) + u" EMM";
@@ -1520,6 +1507,9 @@ void ts::TSAnalyzer::recomputeStatistics()
     _global_pid_cnt = 0;
     _global_pkt_cnt = 0;
     _global_scr_pids = 0;
+    _psisi_pid_cnt = 0;
+    _psisi_pkt_cnt = 0;
+    _psisi_scr_pids = 0;
     _unref_pid_cnt = 0;
     _unref_pkt_cnt = 0;
     _unref_scr_pids = 0;
@@ -1578,11 +1568,21 @@ void ts::TSAnalyzer::recomputeStatistics()
                 _global_scr_pids++;
             }
         }
+
+        // Count global PSI/SI PID's
+        if (pc.pid <= PID_DVB_LAST && pc.services.size() == 0 && pc.ts_pkt_cnt != 0) {
+            _psisi_pid_cnt++;
+            _psisi_pkt_cnt += pc.ts_pkt_cnt;
+            if (pc.scrambled) {
+                _psisi_scr_pids++;
+            }
+        }
     }
 
     // Complete unreferenced and global PID's bitrates
     if (_ts_pkt_cnt != 0) {
         _global_bitrate = uint32_t((uint64_t(_ts_bitrate) * uint64_t(_global_pkt_cnt)) / uint64_t(_ts_pkt_cnt));
+        _psisi_bitrate = uint32_t((uint64_t(_ts_bitrate) * uint64_t(_psisi_pkt_cnt)) / uint64_t(_ts_pkt_cnt));
         _unref_bitrate = uint32_t((uint64_t(_ts_bitrate) * uint64_t(_unref_pkt_cnt)) / uint64_t(_ts_pkt_cnt));
     }
 

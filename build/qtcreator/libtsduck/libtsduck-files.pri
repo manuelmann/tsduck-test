@@ -10,6 +10,7 @@ HEADERS += \
     ../../../src/libtsduck/tsAbstractDescrambler.h \
     ../../../src/libtsduck/tsAbstractDescriptor.h \
     ../../../src/libtsduck/tsAbstractDescriptorsTable.h \
+    ../../../src/libtsduck/tsAbstractHTTPInputPlugin.h \
     ../../../src/libtsduck/tsAbstractLongTable.h \
     ../../../src/libtsduck/tsAbstractMultilingualDescriptor.h \
     ../../../src/libtsduck/tsAbstractSignalization.h \
@@ -80,6 +81,9 @@ HEADERS += \
     ../../../src/libtsduck/tsCOM.h \
     ../../../src/libtsduck/tsComponentDescriptor.h \
     ../../../src/libtsduck/tsCondition.h \
+    ../../../src/libtsduck/tsConfigFile.h \
+    ../../../src/libtsduck/tsConfigSection.h \
+    ../../../src/libtsduck/tsConfigSectionTemplate.h \
     ../../../src/libtsduck/tsContentDescriptor.h \
     ../../../src/libtsduck/tsCopyrightDescriptor.h \
     ../../../src/libtsduck/tsCountryAvailabilityDescriptor.h \
@@ -116,6 +120,7 @@ HEADERS += \
     ../../../src/libtsduck/tsDTSDescriptor.h \
     ../../../src/libtsduck/tsDTSNeuralDescriptor.h \
     ../../../src/libtsduck/tsduck.h \
+    ../../../src/libtsduck/tsDuckConfigFile.h \
     ../../../src/libtsduck/tsDuckProtocol.h \
     ../../../src/libtsduck/tsDVBCharset.h \
     ../../../src/libtsduck/tsDVBCharsetSingleByte.h \
@@ -167,6 +172,11 @@ HEADERS += \
     ../../../src/libtsduck/tsHiDesDevice.h \
     ../../../src/libtsduck/tsHiDesDeviceInfo.h \
     ../../../src/libtsduck/tsHierarchyDescriptor.h \
+    ../../../src/libtsduck/tshls.h \
+    ../../../src/libtsduck/tshlsMediaPlayList.h \
+    ../../../src/libtsduck/tshlsMediaSegment.h \
+    ../../../src/libtsduck/tshlsPlayList.h \
+    ../../../src/libtsduck/tshlsTagAttributes.h \
     ../../../src/libtsduck/tsIBPDescriptor.h \
     ../../../src/libtsduck/tsIDSA.h \
     ../../../src/libtsduck/tsInputRedirector.h \
@@ -431,12 +441,14 @@ HEADERS += \
     ../../../src/libtsduck/tsVBITeletextDescriptor.h \
     ../../../src/libtsduck/tsVersion.h \
     ../../../src/libtsduck/tsVersionInfo.h \
+    ../../../src/libtsduck/tsVersionString.h \
     ../../../src/libtsduck/tsVideoAttributes.h \
     ../../../src/libtsduck/tsVideoStreamDescriptor.h \
     ../../../src/libtsduck/tsVideoWindowDescriptor.h \
     ../../../src/libtsduck/tsWatchDog.h \
     ../../../src/libtsduck/tsWatchDogHandlerInterface.h \
     ../../../src/libtsduck/tsWebRequest.h \
+    ../../../src/libtsduck/tsWebRequestArgs.h \
     ../../../src/libtsduck/tsWebRequestHandlerInterface.h \
     ../../../src/libtsduck/tsxml.h \
     ../../../src/libtsduck/tsxmlAttribute.h \
@@ -447,6 +459,8 @@ HEADERS += \
     ../../../src/libtsduck/tsxmlElementTemplate.h \
     ../../../src/libtsduck/tsxmlNode.h \
     ../../../src/libtsduck/tsxmlText.h \
+    ../../../src/libtsduck/tsxmlTweaks.h \
+    ../../../src/libtsduck/tsxmlTweaksArgs.h \
     ../../../src/libtsduck/tsxmlUnknown.h \
     ../../../src/libtsduck/private/tsDektec.h \
     ../../../src/libtsduck/private/tsDektecDevice.h \
@@ -463,6 +477,7 @@ SOURCES += \
     ../../../src/libtsduck/tsAbstractDescrambler.cpp \
     ../../../src/libtsduck/tsAbstractDescriptor.cpp \
     ../../../src/libtsduck/tsAbstractDescriptorsTable.cpp \
+    ../../../src/libtsduck/tsAbstractHTTPInputPlugin.cpp \
     ../../../src/libtsduck/tsAbstractMultilingualDescriptor.cpp \
     ../../../src/libtsduck/tsAbstractSignalization.cpp \
     ../../../src/libtsduck/tsAbstractTable.cpp \
@@ -520,6 +535,8 @@ SOURCES += \
     ../../../src/libtsduck/tsCOM.cpp \
     ../../../src/libtsduck/tsComponentDescriptor.cpp \
     ../../../src/libtsduck/tsCondition.cpp \
+    ../../../src/libtsduck/tsConfigFile.cpp \
+    ../../../src/libtsduck/tsConfigSection.cpp \
     ../../../src/libtsduck/tsContentDescriptor.cpp \
     ../../../src/libtsduck/tsCopyrightDescriptor.cpp \
     ../../../src/libtsduck/tsCountryAvailabilityDescriptor.cpp \
@@ -544,6 +561,7 @@ SOURCES += \
     ../../../src/libtsduck/tsDSMCCStreamDescriptorsTable.cpp \
     ../../../src/libtsduck/tsDTSDescriptor.cpp \
     ../../../src/libtsduck/tsDTSNeuralDescriptor.cpp \
+    ../../../src/libtsduck/tsDuckConfigFile.cpp \
     ../../../src/libtsduck/tsDuckProtocol.cpp \
     ../../../src/libtsduck/tsDVBCharset.cpp \
     ../../../src/libtsduck/tsDVBCharsetSingleByte.cpp \
@@ -586,6 +604,11 @@ SOURCES += \
     ../../../src/libtsduck/tsHEVCVideoDescriptor.cpp \
     ../../../src/libtsduck/tsHiDesDeviceInfo.cpp \
     ../../../src/libtsduck/tsHierarchyDescriptor.cpp \
+    ../../../src/libtsduck/tshls.cpp \
+    ../../../src/libtsduck/tshlsMediaPlayList.cpp \
+    ../../../src/libtsduck/tshlsMediaSegment.cpp \
+    ../../../src/libtsduck/tshlsPlayList.cpp \
+    ../../../src/libtsduck/tshlsTagAttributes.cpp \
     ../../../src/libtsduck/tsIBPDescriptor.cpp \
     ../../../src/libtsduck/tsIDSA.cpp \
     ../../../src/libtsduck/tsInputRedirector.cpp \
@@ -807,6 +830,7 @@ SOURCES += \
     ../../../src/libtsduck/tsVideoWindowDescriptor.cpp \
     ../../../src/libtsduck/tsWatchDog.cpp \
     ../../../src/libtsduck/tsWebRequest.cpp \
+    ../../../src/libtsduck/tsWebRequestArgs.cpp \
     ../../../src/libtsduck/tsxmlAttribute.cpp \
     ../../../src/libtsduck/tsxmlComment.cpp \
     ../../../src/libtsduck/tsxmlDeclaration.cpp \
@@ -814,6 +838,8 @@ SOURCES += \
     ../../../src/libtsduck/tsxmlElement.cpp \
     ../../../src/libtsduck/tsxmlNode.cpp \
     ../../../src/libtsduck/tsxmlText.cpp \
+    ../../../src/libtsduck/tsxmlTweaks.cpp \
+    ../../../src/libtsduck/tsxmlTweaksArgs.cpp \
     ../../../src/libtsduck/tsxmlUnknown.cpp \
     ../../../src/libtsduck/private/tsDektecDevice.cpp \
     ../../../src/libtsduck/private/tsDektecVPD.cpp \

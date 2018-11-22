@@ -56,7 +56,7 @@ ts::TablesLogger::TablesLogger(const TablesLoggerArgs& opt, TablesDisplay& displ
     _exit(false),
     _table_count(0),
     _packet_count(0),
-    _demux(0, 0, opt.pid),
+    _demux(nullptr, nullptr, opt.pid),
     _cas_mapper(report),
     _xmlOut(report),
     _xmlDoc(report),
@@ -84,6 +84,9 @@ ts::TablesLogger::TablesLogger(const TablesLoggerArgs& opt, TablesDisplay& displ
         _abort = true;
         return;
     }
+
+    // Set XML options in document.
+    _xmlDoc.setTweaks(_opt.xml_tweaks);
 
     // Open/create the XML output.
     if (_opt.use_xml && !_opt.rewrite_xml && !createXML(_opt.xml_destination)) {
@@ -131,6 +134,9 @@ void ts::TablesLogger::close()
         // Pack sections in incomplete tables if required.
         if (_opt.pack_and_flush) {
             _demux.packAndFlushSections();
+        }
+        if (_opt.fill_eit) {
+            _demux.fillAndFlushEITs();
         }
 
         // Close files and documents.
@@ -426,7 +432,7 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
     timestamp = Time::Epoch;
 
     // Filter invalid parameters.
-    if (data == 0) {
+    if (data == nullptr) {
         return false;
     }
 
@@ -461,7 +467,7 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
         const duck::LogSection* logSection = dynamic_cast<const duck::LogSection*>(msg.pointer());
         const duck::LogTable* logTable = dynamic_cast<const duck::LogTable*>(msg.pointer());
 
-        if (logSection != 0) {
+        if (logSection != nullptr) {
             scDate = logSection->timestamp;
             pid = logSection->pid;
             if (logSection->section.isNull() || !logSection->section->isValid()) {
@@ -471,7 +477,7 @@ bool ts::TablesLogger::AnalyzeUDPMessage(const uint8_t* data, size_t size, bool 
                 sections.push_back(logSection->section);
             }
         }
-        else if (logTable != 0) {
+        else if (logTable != nullptr) {
             scDate = logTable->timestamp;
             pid = logTable->pid;
             sections = logTable->sections;
@@ -581,7 +587,7 @@ void ts::TablesLogger::saveXML(const ts::BinaryTable& table)
 {
     // Convert the table into an XML structure.
     xml::Element* elem = table.toXML(_xmlDoc.rootElement(), false, _display.dvbCharset());
-    if (elem == 0) {
+    if (elem == nullptr) {
         // XML conversion error, message already displayed.
         return;
     }

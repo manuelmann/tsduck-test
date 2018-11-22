@@ -32,6 +32,7 @@
 //----------------------------------------------------------------------------
 
 #include "tsArgsWithPlugins.h"
+#include "tsDuckConfigFile.h"
 #include "tsSysUtils.h"
 #include "tsPlugin.h"
 TSDUCK_SOURCE;
@@ -95,7 +96,7 @@ bool ts::ArgsWithPlugins::analyze(const ts::UString& app_name, const ts::UString
 
     // Locate the first processor option. All preceeding options are command-specific options and must be analyzed.
     PluginType plugin_type = PROCESSOR_PLUGIN;
-    PluginOptionsVector* options = 0;
+    PluginOptionsVector* options = nullptr;
     size_t plugin_index = nextProcOpt(args, 0, plugin_type, options);
 
     // Analyze the command-specifc options, not including the plugin options, not processing redirections.
@@ -130,6 +131,11 @@ bool ts::ArgsWithPlugins::analyze(const ts::UString& app_name, const ts::UString
         // Now set options of previous plugin.
         opt.args.insert(opt.args.begin(), args.begin() + start + 2, args.begin() + plugin_index);
     }
+
+    // Load default plugins.
+    loadDefaultPlugins(INPUT_PLUGIN, u"default.input", inputs);
+    loadDefaultPlugins(PROCESSOR_PLUGIN, u"default.plugin", plugins);
+    loadDefaultPlugins(OUTPUT_PLUGIN, u"default.output", outputs);
 
     // Check min and max number of occurences of each plugin type.
     if (inputs.size() < _min_inputs) {
@@ -186,6 +192,31 @@ size_t ts::ArgsWithPlugins::nextProcOpt(const UStringVector& args, size_t index,
         }
         index++;
     }
-    opts = 0;
+    opts = nullptr;
     return std::min(args.size(), index);
+}
+
+
+//----------------------------------------------------------------------------
+// Load default list of plugins by type.
+//----------------------------------------------------------------------------
+
+void ts::ArgsWithPlugins::loadDefaultPlugins(PluginType type, const ts::UString& entry, ts::PluginOptionsVector& options)
+{
+    // Get default plugins only when none where specified.
+    if (options.empty()) {
+        UStringVector lines;
+        DuckConfigFile::Instance()->getValues(entry, lines);
+        for (size_t i = 0; i < lines.size(); ++i) {
+            // Got one plugin specification. Parse its arguments.
+            PluginOptions opt(type);
+            lines[i].splitShellStyle(opt.args);
+            if (!opt.args.empty()) {
+                // Found a complete plugin spec.
+                opt.name = opt.args.front();
+                opt.args.erase(opt.args.begin());
+                options.push_back(opt);
+            }
+        }
+    }
 }

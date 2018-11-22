@@ -194,8 +194,8 @@ ts::MPEPlugin::MPEPlugin(TSP* tsp_) :
          u"messages are written without any encapsulation.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Extract MPE datagrams from this PID. Several -p or --pid options may be "
+    help(u"pid", u"pid1[-pid2]",
+         u"Extract MPE datagrams from these PID's. Several -p or --pid options may be "
          u"specified. When no PID is specified, use all PID's carrying MPE which are "
          u"properly declared in the signalization.");
 
@@ -265,7 +265,7 @@ bool ts::MPEPlugin::getOptions()
     getIntValue(_dump_max, u"dump-max", NPOS);
     getIntValue(_skip_size, u"skip");
     getIntValue(_ttl, u"ttl");
-    getPIDSet(_pids, u"pid");
+    getIntValues(_pids, u"pid");
     const UString ipSource(value(u"source"));
     const UString ipDest(value(u"destination"));
     const UString ipForward(value(u"redirect"));
@@ -509,7 +509,7 @@ void ts::MPEPlugin::handleMPEPacket(MPEDemux& demux, const MPEPacket& mpe)
 
 ts::UString ts::MPEPlugin::dumpString(const MPEPacket& mpe)
 {
-    const uint8_t* data = 0;
+    const uint8_t* data = nullptr;
     size_t size = 0;
 
     // Select what to dump.

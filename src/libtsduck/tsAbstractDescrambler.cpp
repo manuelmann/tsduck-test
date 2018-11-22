@@ -54,7 +54,7 @@ ts::AbstractDescrambler::AbstractDescrambler(TSP*           tsp_,
     _packet_count(0),
     _service(this, *tsp),
     _stack_usage(stack_usage),
-    _demux(0, this),
+    _demux(nullptr, this),
     _ecm_streams(),
     _scrambled_streams(),
     _mutex(),
@@ -77,12 +77,13 @@ ts::AbstractDescrambler::AbstractDescrambler(TSP*           tsp_,
          u"PID's to descramble and fixed control words shall be specified as well.");
 
     option(u"pid", 'p', PIDVAL, 0, UNLIMITED_COUNT);
-    help(u"pid",
-         u"Descramble packets with this PID value. Several -p or --pid options may be "
-         u"specified. By default, descramble the specified service.");
+    help(u"pid", u"pid1[-pid2]",
+         u"Descramble packets with this PID value or range of PID values. "
+         u"Several -p or --pid options may be specified. "
+         u"By default, descramble the specified service.");
 
     option(u"synchronous");
-    help(u"synchronous", 
+    help(u"synchronous",
          u"Specify to synchronously decipher the ECM's. By default, in real-time "
          u"mode, the packet processing continues while processing ECM's. This option "
          u"is always on in offline mode.");
@@ -135,7 +136,7 @@ bool ts::AbstractDescrambler::start()
     _use_service = present(u"");
     _service.set(value(u""));
     _synchronous = present(u"synchronous") || !tsp->realtime();
-    getPIDSet(_pids, u"pid");
+    getIntValues(_pids, u"pid");
     if (!_scrambling.loadArgs(*this)) {
         return false;
     }

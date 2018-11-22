@@ -65,7 +65,7 @@ namespace ts {
         //! @param [in] table Binary table to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        TOT(const BinaryTable& table, const DVBCharset* charset = 0);
+        TOT(const BinaryTable& table, const DVBCharset* charset = nullptr);
 
         //!
         //! Copy constructor.
@@ -89,8 +89,8 @@ namespace ts {
         static UString timeOffsetFormat(int minutes);
 
         // Inherited methods
-        virtual void serialize(BinaryTable& table, const DVBCharset* = 0) const override;
-        virtual void deserialize(const BinaryTable& table, const DVBCharset* = 0) override;
+        virtual void serialize(BinaryTable& table, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const BinaryTable& table, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplaySection();

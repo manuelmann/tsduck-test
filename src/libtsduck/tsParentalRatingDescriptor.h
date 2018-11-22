@@ -58,7 +58,7 @@ namespace ts {
             //! @param [in] code ISO-3166 country code, 3 characters, as a C-string. Can be null.
             //! @param [in] rate Parental rating.
             //!
-            Entry(const UChar* code = 0, uint8_t rate = 0);
+            Entry(const UChar* code = nullptr, uint8_t rate = 0);
 
             //!
             //! Constructor.
@@ -91,7 +91,7 @@ namespace ts {
         //! @param [in] bin A binary descriptor to deserialize.
         //! @param [in] charset If not zero, character set to use without explicit table code.
         //!
-        ParentalRatingDescriptor(const Descriptor& bin, const DVBCharset* charset = 0);
+        ParentalRatingDescriptor(const Descriptor& bin, const DVBCharset* charset = nullptr);
 
         //!
         //! Constructor with one entry.
@@ -101,8 +101,8 @@ namespace ts {
         ParentalRatingDescriptor(const UString& code, uint8_t rate);
 
         // Inherited methods
-        virtual void serialize(Descriptor&, const DVBCharset* = 0) const override;
-        virtual void deserialize(const Descriptor&, const DVBCharset* = 0) override;
+        virtual void serialize(Descriptor&, const DVBCharset* = nullptr) const override;
+        virtual void deserialize(const Descriptor&, const DVBCharset* = nullptr) override;
         virtual void buildXML(xml::Element*) const override;
         virtual void fromXML(const xml::Element*) override;
         DeclareDisplayDescriptor();

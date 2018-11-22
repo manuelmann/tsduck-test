@@ -274,7 +274,7 @@ namespace ts {
         //!
         inline size_t getHeaderSize() const
         {
-            return std::min(4 + (hasAF() ? ((size_t)(b[4])+1) : 0), PKT_SIZE);
+            return std::min(4 + (hasAF() ? (size_t(b[4]) + 1) : 0), PKT_SIZE);
         }
 
         //!
@@ -359,6 +359,15 @@ namespace ts {
         }
 
         //!
+        //! Check if packet has splicing point countdown
+        //! @return True if packet has a splicing point countdown.
+        //!
+        inline bool hasSpliceCountdown() const
+        {
+            return getAFSize() > 0 && (b[5] & 0x04) != 0;
+        }
+
+        //!
         //! Get the PCR - 42 bits.
         //! @return The PCR or 0 if not found.
         //!
@@ -369,6 +378,13 @@ namespace ts {
         //! @return The OPCR or 0 if not found.
         //!
         uint64_t getOPCR() const;
+
+        //!
+        //! Get the splicing point countdown - 8 bits (signed).
+        //! @return The splicing point countdown or 0 if not found.
+        //!
+        int8_t getSpliceCountdown() const;
+
 
         //!
         //! Replace the PCR value - 42 bits
@@ -484,9 +500,10 @@ namespace ts {
         //! @param [in] flags Indicate which part must be dumped. If DUMP_RAW or
         //! DUMP_PAYLOAD is specified, flags from ts::UString::HexaFlags may also be used.
         //! @param [in] indent Indicates the base indentation of lines.
+        //! @param [in] size Maximum size to display in the packet.
         //! @return A reference to the @a strm object.
         //!
-        std::ostream& display(std::ostream& strm, uint32_t flags = 0, int indent = 0) const;
+        std::ostream& display(std::ostream& strm, uint32_t flags = 0, size_t indent = 0, size_t size = PKT_SIZE) const;
 
         //!
         //! Init packet from a memory area.
@@ -494,7 +511,7 @@ namespace ts {
         //!
         void copyFrom(const void* source)
         {
-            assert(source != 0);
+            assert(source != nullptr);
             ::memcpy(b, source, PKT_SIZE);
         }
 
@@ -504,7 +521,7 @@ namespace ts {
         //!
         void copyTo(void* dest) const
         {
-            assert(dest != 0);
+            assert(dest != nullptr);
             ::memcpy(dest, b, PKT_SIZE);
         }
 
@@ -516,8 +533,8 @@ namespace ts {
         //!
         static inline void Copy(TSPacket* dest, const TSPacket* source, size_t count = 1)
         {
-            assert(dest != 0);
-            assert(source != 0);
+            assert(dest != nullptr);
+            assert(source != nullptr);
             ::memcpy(dest->b, source->b, count * PKT_SIZE);
         }
 
@@ -529,8 +546,8 @@ namespace ts {
         //!
         static inline void Copy(TSPacket* dest, const uint8_t* source, size_t count = 1)
         {
-            assert(dest != 0);
-            assert(source != 0);
+            assert(dest != nullptr);
+            assert(source != nullptr);
             ::memcpy(dest->b, source, count * PKT_SIZE);
         }
 
@@ -542,8 +559,8 @@ namespace ts {
         //!
         static inline void Copy(uint8_t* dest, const TSPacket* source, size_t count = 1)
         {
-            assert(dest != 0);
-            assert(source != 0);
+            assert(dest != nullptr);
+            assert(source != nullptr);
             ::memcpy(dest, source->b, count * PKT_SIZE);
         }
 
@@ -563,6 +580,7 @@ namespace ts {
         size_t OPCROffset() const;
         size_t PTSOffset() const;
         size_t DTSOffset() const;
+        size_t spliceCountdownOffset() const;
 
         // Get or set PTS or DTS at specified offset. Return 0 if offset is zero.
         uint64_t getPDTS(size_t offset) const;

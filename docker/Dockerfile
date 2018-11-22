@@ -5,7 +5,7 @@ RUN dnf install -y git make gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pc
 RUN git clone https://github.com/manuelmann/tsduck-test.git && cd tsduck-test && make NOTEST=1 NOPCSC=1 NOCURL=1 NODTAPI=1 NOTELETEXT=1
 
 FROM fedora:latest
-RUN dnf add bash
+RUN dnf install -y bash
 COPY --from=builder /tsduck-test/src/tstools/release-x86_64/tsp /usr/bin/tsp
 COPY --from=builder /tsduck-test/src/tsplugins/release-x86_64/tslugin_file.so /usr/bin/tslugin_file.so
 COPY --from=builder /tsduck-test/src/tsplugins/release-x86_64/tslugin_ip.so /usr/bin/tslugin_ip.so

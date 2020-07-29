@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <ImportGroup Label="PropertySheets">
+    <Import Project="msvc-common-begin.props" />
+  </ImportGroup>
+
+  <ItemGroup>
+    <LibHeaders     Include="$(TSDuckRootDir)src\libtsduck\**\*.h"   Exclude="$(TSDuckRootDir)src\libtsduck\**\unix\**;$(TSDuckRootDir)src\libtsduck\**\linux\**;$(TSDuckRootDir)src\libtsduck\**\mac\**"/>
+    <LibSources     Include="$(TSDuckRootDir)src\libtsduck\**\*.cpp" Exclude="$(TSDuckRootDir)src\libtsduck\**\unix\**;$(TSDuckRootDir)src\libtsduck\**\linux\**;$(TSDuckRootDir)src\libtsduck\**\mac\**"/>
+    <LibConfigXML   Include="$(TSDuckRootDir)src\libtsduck\**\*.xml"/>
+    <LibConfigNames Include="$(TSDuckRootDir)src\libtsduck\**\*.names"/>
+    <Xml            Include="@(LibConfigXML)"/>
+    <None           Include="@(LibConfigNames)"/>
+    <ClInclude      Include="@(LibHeaders)"/>
+    <ClCompile      Include="@(LibSources)"/>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{25A6CE1B-83F7-4859-A1EA-B7A8EAFFD2C6}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>tsducklib</RootNamespace>
+  </PropertyGroup>
+
+  <ImportGroup Label="PropertySheets">
+    <Import Project="msvc-target-lib.props" />
+    <Import Project="msvc-use-dtapi.props" />
+    <Import Project="msvc-disable-srt.props" />
+  </ImportGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(TSDuckLibDirs);$(TSDuckLibDirsInternal);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ImportGroup Label="PropertySheets">
+    <Import Project="msvc-common-end.props" />
+  </ImportGroup>
+
+  <Target Name="AfterBuild">
+    <Copy SourceFiles="@(LibConfigXML);@(LibConfigNames)" DestinationFolder="$(OutDir)" />
+  </Target>
+
+</Project>

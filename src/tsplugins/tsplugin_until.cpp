@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsTime.h"
 TSDUCK_SOURCE;
@@ -45,16 +44,16 @@ TSDUCK_SOURCE;
 namespace ts {
     class UntilPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(UntilPlugin);
     public:
         // Implementation of plugin API
         UntilPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool           _exclude_last;     // Exclude packet which triggers the condition
         PacketCounter  _pack_max;         // Stop at Nth packet
-        PacketCounter  _pack_cnt;         // Packet counter
         PacketCounter  _unit_start_max;   // Stop at Nth packet with payload unit start
         PacketCounter  _unit_start_cnt;   // Payload unit start counter
         PacketCounter  _null_seq_max;     // Stop at Nth sequence of null packets
@@ -65,16 +64,10 @@ namespace ts {
         bool           _started;          // First packet was received
         bool           _terminated;       // Final condition is met
         bool           _transparent;      // Pass all packets, no longer check conditions
-
-        // Inaccessible operations
-        UntilPlugin() = delete;
-        UntilPlugin(const UntilPlugin&) = delete;
-        UntilPlugin& operator=(const UntilPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(until, ts::UntilPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"until", ts::UntilPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -85,7 +78,6 @@ ts::UntilPlugin::UntilPlugin (TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Copy packets until one of the specified conditions is met", u"[options]"),
     _exclude_last(false),
     _pack_max(0),
-    _pack_cnt(0),
     _unit_start_max(0),
     _unit_start_cnt(0),
     _null_seq_max(0),
@@ -143,7 +135,6 @@ bool ts::UntilPlugin::start()
     _msec_max = intValue<MilliSecond>(u"milli-seconds", intValue<MilliSecond>(u"seconds") * MilliSecPerSec);
     tsp->useJointTermination (present(u"joint-termination"));
 
-    _pack_cnt = 0;
     _unit_start_cnt = 0;
     _null_seq_cnt = 0;
     _previous_pid = PID_MAX; // Invalid value
@@ -159,7 +150,7 @@ bool ts::UntilPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::UntilPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::UntilPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Check if no longer check condition
     if (_transparent) {
@@ -186,8 +177,6 @@ ts::ProcessorPlugin::Status ts::UntilPlugin::processPacket (TSPacket& pkt, bool&
 
     // Update context information
 
-    _pack_cnt++;
-
     if (pkt.getPID() == PID_NULL && _previous_pid != PID_NULL) {
         _null_seq_cnt++;
     }
@@ -197,7 +186,7 @@ ts::ProcessorPlugin::Status ts::UntilPlugin::processPacket (TSPacket& pkt, bool&
 
     // Check if the packet matches one of the selected conditions
     _terminated =
-        (_pack_max > 0 && _pack_cnt >= _pack_max) ||
+        (_pack_max > 0 && tsp->pluginPackets() + 1 >= _pack_max) ||
         (_null_seq_max > 0 && _null_seq_cnt >= _null_seq_max) ||
         (_unit_start_max > 0 && _unit_start_cnt >= _unit_start_max) ||
         (_msec_max && Time::CurrentUTC() - _start_time >= _msec_max);

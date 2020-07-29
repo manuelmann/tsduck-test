@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,8 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
-#include "tsForkPipe.h"
+#include "tsTSForkPipe.h"
 #include "tsSysUtils.h"
 #include "tsRegistry.h"
 TSDUCK_SOURCE;
@@ -50,31 +49,26 @@ TSDUCK_SOURCE;
 namespace ts {
     class PlayPlugin: public OutputPlugin
     {
+        TS_NOBUILD_NOCOPY(PlayPlugin);
     public:
         // Implementation of plugin API
         PlayPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
         virtual bool isRealTime() override {return true;}
-        virtual bool send(const TSPacket*, size_t) override;
+        virtual bool send(const TSPacket*, const TSPacketMetadata*, size_t) override;
 
     private:
-        bool     _use_mplayer;
-        bool     _use_xine;
-        ForkPipe _pipe;
+        bool       _use_mplayer;
+        bool       _use_xine;
+        TSForkPipe _pipe;
 
         // Search a file in a search path. Return true is found
         bool searchInPath(UString& result, const UStringVector& path, const UString& name);
-
-        // Inaccessible operations
-        PlayPlugin() = delete;
-        PlayPlugin(const PlayPlugin&) = delete;
-        PlayPlugin& operator=(const PlayPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_OUTPUT(play, ts::PlayPlugin)
+TS_REGISTER_OUTPUT_PLUGIN(u"play", ts::PlayPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -117,9 +111,9 @@ bool ts::PlayPlugin::stop()
 // Output method
 //----------------------------------------------------------------------------
 
-bool ts::PlayPlugin::send(const TSPacket* buffer, size_t packet_count)
+bool ts::PlayPlugin::send(const TSPacket* buffer, const TSPacketMetadata* pkt_data, size_t packet_count)
 {
-    return _pipe.write(buffer, PKT_SIZE * packet_count, *tsp);
+    return _pipe.writePackets(buffer, pkt_data, packet_count, *tsp);
 }
 
 
@@ -161,7 +155,7 @@ bool ts::PlayPlugin::start()
     // Command to execute will be built here
     UString command;
 
-#if defined (TS_WINDOWS)
+#if defined(TS_WINDOWS)
 
     // On Windows, VLC is the only known media player that can read an MPEG
     // transport stream on its standard input. Try to locate vlc.exe using

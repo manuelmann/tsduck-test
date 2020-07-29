@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsService.h"
 #include "tsSectionDemux.h"
@@ -55,11 +54,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class SVRemovePlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(SVRemovePlugin);
     public:
         // Implementation of plugin API
         SVRemovePlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool              _abort;          // Error (service not found, etc)
@@ -91,16 +91,10 @@ namespace ts {
 
         // Mark all ECM PIDs from the specified descriptor list in the specified PID set
         void addECMPID(const DescriptorList&, PIDSet&);
-
-        // Inaccessible operations
-        SVRemovePlugin() = delete;
-        SVRemovePlugin(const SVRemovePlugin&) = delete;
-        SVRemovePlugin& operator=(const SVRemovePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(svremove, ts::SVRemovePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"svremove", ts::SVRemovePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -120,12 +114,15 @@ ts::SVRemovePlugin::SVRemovePlugin (TSP* tsp_) :
     _drop_status(TSP_DROP),
     _drop_pids(),
     _ref_pids(),
-    _demux(this),
-    _pzer_pat(PID_PAT, CyclingPacketizer::ALWAYS),
-    _pzer_sdt_bat(PID_SDT, CyclingPacketizer::ALWAYS),
-    _pzer_nit(PID_NIT, CyclingPacketizer::ALWAYS),
-    _eit_process(PID_EIT, tsp_)
+    _demux(duck, this),
+    _pzer_pat(duck, PID_PAT, CyclingPacketizer::ALWAYS),
+    _pzer_sdt_bat(duck, PID_SDT, CyclingPacketizer::ALWAYS),
+    _pzer_nit(duck, PID_NIT, CyclingPacketizer::ALWAYS),
+    _eit_process(duck, PID_EIT)
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"", 0, STRING, 1, 1);
     help(u"",
          u"Specifies the service to remove. If the argument is an integer value "
@@ -161,6 +158,7 @@ ts::SVRemovePlugin::SVRemovePlugin (TSP* tsp_) :
 bool ts::SVRemovePlugin::start()
 {
     // Get option values
+    duck.loadArgs(*this);
     _service.set(value(u""));
     _ignore_absent = present(u"ignore-absent");
     _ignore_bat = present(u"ignore-bat");
@@ -227,7 +225,7 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
 {
     if (tsp->debug()) {
         tsp->debug(u"Got %s v%d, PID %d (0x%X), TIDext %d (0x%X)",
-                   {names::TID(table.tableId()), table.version(),
+                   {names::TID(duck, table.tableId()), table.version(),
                     table.sourcePID(), table.sourcePID(),
                     table.tableIdExtension(), table.tableIdExtension()});
     }
@@ -236,7 +234,7 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
 
         case TID_PAT: {
             if (table.sourcePID() == PID_PAT) {
-                PAT pat(table);
+                PAT pat(duck, table);
                 if (pat.isValid()) {
                     processPAT(pat);
                 }
@@ -245,7 +243,7 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
         }
 
         case TID_PMT: {
-            PMT pmt(table);
+            PMT pmt(duck, table);
             if (pmt.isValid()) {
                 processPMT(pmt);
             }
@@ -254,7 +252,7 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
 
         case TID_SDT_ACT: {
             if (table.sourcePID() == PID_SDT) {
-                SDT sdt(table);
+                SDT sdt(duck, table);
                 if (sdt.isValid()) {
                     processSDT(sdt);
                 }
@@ -288,11 +286,11 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
                 }
                 else {
                     // Modify BAT
-                    BAT bat(table);
+                    BAT bat(duck, table);
                     if (bat.isValid()) {
                         processNITBAT(bat);
                         _pzer_sdt_bat.removeSections(TID_BAT, bat.bouquet_id);
-                        _pzer_sdt_bat.addTable(bat);
+                        _pzer_sdt_bat.addTable(duck, bat);
                     }
                 }
             }
@@ -307,11 +305,11 @@ void ts::SVRemovePlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
                 }
                 else {
                     // Modify NIT Actual
-                    NIT nit(table);
+                    NIT nit(duck, table);
                     if (nit.isValid()) {
                         processNITBAT(nit);
                         _pzer_nit.removeSections(TID_NIT_ACT, nit.network_id);
-                        _pzer_nit.addTable(nit);
+                        _pzer_nit.addTable(duck, nit);
                     }
                 }
             }
@@ -353,7 +351,7 @@ void ts::SVRemovePlugin::processSDT(SDT& sdt)
     }
     else {
         // Service id is currently unknown, search service by name
-        found = sdt.findService(_service);
+        found = sdt.findService(duck, _service);
         if (!found) {
             // Here, this is an error. A service can be searched by name only in current TS
             if (_ignore_absent) {
@@ -381,7 +379,7 @@ void ts::SVRemovePlugin::processSDT(SDT& sdt)
 
     // Replace the SDT in the PID
     _pzer_sdt_bat.removeSections(TID_SDT_ACT, sdt.ts_id);
-    _pzer_sdt_bat.addTable(sdt);
+    _pzer_sdt_bat.addTable(duck, sdt);
 }
 
 
@@ -437,7 +435,7 @@ void ts::SVRemovePlugin::processPAT(PAT& pat)
 
     // Replace the PAT.in the PID
     _pzer_pat.removeSections(TID_PAT);
-    _pzer_pat.addTable(pat);
+    _pzer_pat.addTable(duck, pat);
 
     // Remove EIT's for this service.
     if (!_ignore_eit) {
@@ -485,7 +483,7 @@ void ts::SVRemovePlugin::addECMPID(const DescriptorList& dlist, PIDSet& pid_set)
 {
     // Loop on all CA descriptors
     for (size_t index = dlist.search(DID_CA); index < dlist.count(); index = dlist.search(DID_CA, index + 1)) {
-        CADescriptor ca(*dlist[index]);
+        CADescriptor ca(duck, *dlist[index]);
         if (!ca.isValid()) {
             // Cannot deserialize a valid CA descriptor, ignore it
         }
@@ -575,7 +573,7 @@ void ts::SVRemovePlugin::processNITBATDescriptorList(DescriptorList& dlist)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::SVRemovePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::SVRemovePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     const PID pid = pkt.getPID();
 

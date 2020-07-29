@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -47,6 +47,7 @@ TSDUCK_SOURCE;
 namespace ts {
     class SDTPlugin: public AbstractTablePlugin
     {
+        TS_NOBUILD_NOCOPY(SDTPlugin);
     public:
         // Implementation of plugin API
         SDTPlugin(TSP*);
@@ -62,16 +63,10 @@ namespace ts {
         // Implementation of AbstractTablePlugin.
         virtual void createNewTable(BinaryTable& table) override;
         virtual void modifyTable(BinaryTable& table, bool& is_target, bool& reinsert) override;
-
-        // Inaccessible operations
-        SDTPlugin() = delete;
-        SDTPlugin(const SDTPlugin&) = delete;
-        SDTPlugin& operator=(const SDTPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(sdt, ts::SDTPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"sdt", ts::SDTPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -86,6 +81,9 @@ ts::SDTPlugin::SDTPlugin(TSP* tsp_) :
     _remove_serv(),
     _cleanup_priv_desc(false)
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"cleanup-private-descriptors");
     help(u"cleanup-private-descriptors",
          u"Remove all private descriptors without preceding private_data_specifier descriptor.");
@@ -156,6 +154,7 @@ ts::SDTPlugin::SDTPlugin(TSP* tsp_) :
 bool ts::SDTPlugin::start()
 {
     // Get option values
+    duck.loadArgs(*this);
     _cleanup_priv_desc = present(u"cleanup-private-descriptors");
     _use_other = present(u"other");
     _other_ts_id = intValue<uint16_t>(u"other");
@@ -189,7 +188,7 @@ bool ts::SDTPlugin::start()
         _service.setTSId(intValue<uint16_t>(u"ts-id"));
     }
     if (present(u"type")) {
-        _service.setType(intValue<uint8_t>(u"type"));
+        _service.setTypeDVB(intValue<uint8_t>(u"type"));
     }
 
     // Start superclass.
@@ -211,7 +210,7 @@ void ts::SDTPlugin::createNewTable(BinaryTable& table)
         sdt.ts_id = _other_ts_id;
     }
 
-    sdt.serialize(table);
+    sdt.serialize(duck, table);
 }
 
 
@@ -230,7 +229,7 @@ void ts::SDTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Process the SDT.
-    SDT sdt(table);
+    SDT sdt(duck, table);
     if (!sdt.isValid()) {
         tsp->warning(u"found invalid SDT");
         reinsert = false;
@@ -256,7 +255,7 @@ void ts::SDTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
             sv.EITpf_present = false;
             sv.running_status = 4; // running
             sv.CA_controlled = false;
-            sv.descs.add(ServiceDescriptor(0x01, u"", u""));
+            sv.descs.add(duck, ServiceDescriptor(0x01, u"", u""));
         }
 
         // Locate service to modify
@@ -273,16 +272,16 @@ void ts::SDTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
             sv.CA_controlled = _service.getCAControlled();
         }
         if (_service.hasName()) {
-            sv.setName(_service.getName());
+            sv.setName(duck, _service.getName());
         }
         if (_service.hasProvider()) {
-            sv.setProvider(_service.getProvider());
+            sv.setProvider(duck, _service.getProvider());
         }
         if (_service.hasRunningStatus()) {
             sv.running_status = _service.getRunningStatus();
         }
-        if (_service.hasType()) {
-            sv.setType(_service.getType());
+        if (_service.hasTypeDVB()) {
+            sv.setType(_service.getTypeDVB());
         }
     }
 
@@ -299,5 +298,5 @@ void ts::SDTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Reserialize modified SDT.
-    sdt.serialize(table);
+    sdt.serialize(duck, table);
 }

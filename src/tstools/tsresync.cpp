@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -38,6 +38,7 @@
 #include "tsFatal.h"
 #include "tsMPEG.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 #define MIN_SYNC_SIZE       (1024)              // 1 kB
 #define MAX_SYNC_SIZE       (8 * 1024 * 1024)   // 8 MB
@@ -52,20 +53,23 @@ TSDUCK_SOURCE;
 //  Command line options
 //----------------------------------------------------------------------------
 
-class Options: public ts::Args
-{
-public:
-    Options(int argc, char *argv[]);
+namespace {
+    class Options: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(Options);
+    public:
+        Options(int argc, char *argv[]);
 
-    size_t      sync_size;   // number of initial bytes to analyze for resync
-    size_t      contig_size; // required size of contiguous packets to accept a stream slice
-    size_t      packet_size; // specific non-standard input packet size (zero means use standard sizes)
-    size_t      header_size; // header size (when packet_size > 0)
-    bool        cont_sync;   // continuous synchronization (default: stop on error)
-    bool        keep;        // keep packet size (default: reduce to 188 bytes)
-    ts::UString infile;      // Input file name
-    ts::UString outfile;     // Output file name
-};
+        size_t      sync_size;   // number of initial bytes to analyze for resync
+        size_t      contig_size; // required size of contiguous packets to accept a stream slice
+        size_t      packet_size; // specific non-standard input packet size (zero means use standard sizes)
+        size_t      header_size; // header size (when packet_size > 0)
+        bool        cont_sync;   // continuous synchronization (default: stop on error)
+        bool        keep;        // keep packet size (default: reduce to 188 bytes)
+        ts::UString infile;      // Input file name
+        ts::UString outfile;     // Output file name
+    };
+}
 
 Options::Options(int argc, char *argv[]) :
     Args(u"Resynchronize a non-standard or corrupted MPEG transport stream", u"[options] [filename]"),
@@ -405,5 +409,3 @@ int MainCode(int argc, char *argv[])
 
     return resync.status() == RS_EOF ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-TS_MAIN(MainCode)

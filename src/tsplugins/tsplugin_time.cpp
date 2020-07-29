@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,9 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsSectionDemux.h"
+#include "tsBinaryTable.h"
 #include "tsEnumeration.h"
 #include "tsTime.h"
 #include "tsTDT.h"
@@ -48,11 +48,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class TimePlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(TimePlugin);
     public:
         // Implementation of plugin API
         TimePlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Time event description
@@ -86,16 +87,10 @@ namespace ts {
 
         // Add time events in the list fro one option. Return false if a time string is invalid
         bool addEvents(const UChar* option, Status status);
-
-        // Inaccessible operations
-        TimePlugin() = delete;
-        TimePlugin(const TimePlugin&) = delete;
-        TimePlugin& operator=(const TimePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(time, ts::TimePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"time", ts::TimePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -110,7 +105,7 @@ ts::TimePlugin::TimePlugin (TSP* tsp_) :
     _use_tdt(false),
     _last_time(Time::Epoch),
     _status_names({{u"pass", TSP_OK}, {u"stop", TSP_END}, {u"drop", TSP_DROP}, {u"null", TSP_NULL}}),
-    _demux(this),
+    _demux(duck, this),
     _events(),
     _next_index(0)
 {
@@ -255,7 +250,7 @@ void ts::TimePlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
     if (table.tableId() == TID_TDT) {
         if (table.sourcePID() == PID_TDT) {
             // Use TDT as clock reference
-            TDT tdt(table);
+            TDT tdt(duck, table);
             if (tdt.isValid()) {
                 _last_time = tdt.utc_time;
             }
@@ -268,7 +263,7 @@ void ts::TimePlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::TimePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::TimePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Filter sections
     _demux.feedPacket(pkt);

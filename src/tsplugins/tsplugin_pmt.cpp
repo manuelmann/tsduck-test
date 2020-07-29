@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -42,8 +42,8 @@
 #include "tsStreamIdentifierDescriptor.h"
 #include "tsDataBroadcastIdDescriptor.h"
 #include "tsRegistrationDescriptor.h"
-#include "tsAC3Descriptor.h"
-#include "tsEnhancedAC3Descriptor.h"
+#include "tsDVBAC3Descriptor.h"
+#include "tsDVBEnhancedAC3Descriptor.h"
 #include "tsCueIdentifierDescriptor.h"
 TSDUCK_SOURCE;
 
@@ -55,11 +55,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class PMTPlugin: public AbstractTablePlugin
     {
+        TS_NOBUILD_NOCOPY(PMTPlugin);
     public:
         // Implementation of plugin API
         PMTPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Description of a new component to add
@@ -107,21 +108,15 @@ namespace ts {
 
         // Decode an option "pid/value[/hexa]". Hexa is allowed only if hexa is non zero.
         template<typename INT>
-        bool decodeOptionForPID(const UChar* parameter_name, size_t parameter_index, PID& pid, INT& value, ByteBlock* hexa = nullptr);
+        bool decodeOptionForPID(const UChar* parameter_name, size_t parameter_index, PID& pid, INT& value, ByteBlock* hexa = nullptr, INT value_max = std::numeric_limits<INT>::max());
 
         // Decode options like --set-stream-identifier which add a simple descriptor in a component.
         template<typename DESCRIPTOR, typename INT>
         bool decodeComponentDescOption(const UChar* parameter_name);
-
-        // Inaccessible operations
-        PMTPlugin() = delete;
-        PMTPlugin(const PMTPlugin&) = delete;
-        PMTPlugin& operator=(const PMTPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(pmt, ts::PMTPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"pmt", ts::PMTPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -130,7 +125,7 @@ TSPLUGIN_DECLARE_PROCESSOR(pmt, ts::PMTPlugin)
 
 ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
     AbstractTablePlugin(tsp_, u"Perform various transformations on the PMT", u"[options]", u"PMT"),
-    _service(nullptr, *tsp_),
+    _service(duck, nullptr),
     _removed_pid(),
     _removed_desc(),
     _removed_stream(),
@@ -149,6 +144,9 @@ ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
     _add_pid_descs(),
     _languages()
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"ac3-atsc2dvb");
     help(u"ac3-atsc2dvb",
          u"Change the description of AC-3 audio streams from ATSC to DVB method. "
@@ -165,14 +163,22 @@ ts::PMTPlugin::PMTPlugin(TSP* tsp_) :
 
     option(u"add-pid", 'a', STRING, 0, UNLIMITED_COUNT);
     help(u"add-pid", u"pid/stream_type",
-         u"Add the specified PID / stream-type component in the PMT. Several "
-         u"--add-pid options may be specified to add several components.");
+         u"Add the specified PID / stream-type component in the PMT. "
+         u"Several --add-pid options may be specified to add several components.");
 
-    option(u"add-programinfo-id", 0, UINT32);
-    help(u"add-programinfo-id",
-         u"Add a registration_descriptor in the program-level descriptor list in the "
-         u"PMT. The value is the format_identifier in registration_descriptor, e.g. "
-         u"0x43554549 for CUEI.");
+    option(u"add-registration", 0, UINT32, 0, UNLIMITED_COUNT);
+    help(u"add-registration", u"id",
+         u"Add a registration_descriptor in the program-level descriptor list in the PMT. "
+         u"The value is the format_identifier in registration_descriptor, e.g. 0x43554549 for CUEI.");
+
+    option(u"add-pid-registration", 0, STRING, 0, UNLIMITED_COUNT);
+    help(u"add-pid-registration", u"pid/id",
+         u"Add a registration_descriptor in the descriptor list of the specified PID in the PMT. "
+         u"The value is the format_identifier in registration_descriptor, e.g. 0x43554549 for CUEI.");
+
+    option(u"add-programinfo-id", 0, UINT32, 0, UNLIMITED_COUNT);
+    help(u"add-programinfo-id", u"id",
+         u"A legacy synonym for --add-registration.");
 
     option(u"add-stream-identifier");
     help(u"add-stream-identifier",
@@ -280,7 +286,7 @@ void ts::PMTPlugin::addComponentDescriptor(PID pid, const AbstractDescriptor& de
     }
 
     // Add the new descriptor.
-    _add_pid_descs[pid]->add(desc);
+    _add_pid_descs[pid]->add(duck, desc);
 }
 
 
@@ -289,7 +295,7 @@ void ts::PMTPlugin::addComponentDescriptor(PID pid, const AbstractDescriptor& de
 //----------------------------------------------------------------------------
 
 template<typename INT>
-bool ts::PMTPlugin::decodeOptionForPID(const UChar* parameter_name, size_t parameter_index, PID& pid, INT& param, ByteBlock* hexa)
+bool ts::PMTPlugin::decodeOptionForPID(const UChar* parameter_name, size_t parameter_index, PID& pid, INT& param, ByteBlock* hexa, INT value_max)
 {
     // Get the parameter string value.
     const UString str(value(parameter_name, u"", parameter_index));
@@ -308,7 +314,7 @@ bool ts::PMTPlugin::decodeOptionForPID(const UChar* parameter_name, size_t param
         ok = fields[0].toInteger(v1, u",") &&
              fields[1].toInteger(v2, u",") &&
              v1 < uint64_t(PID_MAX) &&
-             v2 <= uint64_t(std::numeric_limits<INT>::max());
+             v2 <= uint64_t(value_max);
         if (ok) {
             pid = PID(v1);
             param = INT(v2);
@@ -370,6 +376,7 @@ bool ts::PMTPlugin::start()
     _add_pid_descs.clear();
 
     // Get option values
+    duck.loadArgs(*this);
     _set_servid = present(u"new-service-id");
     _new_servid = intValue<uint16_t>(u"new-service-id");
     _set_pcrpid = present(u"pcr-pid");
@@ -419,13 +426,14 @@ bool ts::PMTPlugin::start()
     // Get list of components to move
     opt_count = count(u"move-pid");
     for (size_t n = 0; n < opt_count; n++) {
-        const UString s(value(u"move-pid", u"", n));
-        int opid = 0, npid = 0;
-        if (!s.scan(u"%i/%i", {&opid, &npid}) || opid < 0 || opid >= PID_MAX || npid < 0 || npid >= PID_MAX) {
-            error(u"invalid \"old-PID/new-PID\" value \"%s\"", {s});
+        PID opid = PID_NULL;
+        PID npid = PID_NULL;
+        if (decodeOptionForPID(u"move-pid", n, opid, npid, nullptr, PID(PID_MAX - 1))) {
+            _moved_pid[PID(opid)] = PID(npid);
+        }
+        else {
             return false;
         }
-        _moved_pid[PID(opid)] = PID(npid);
     }
 
     // Get audio languages to set.
@@ -436,11 +444,27 @@ bool ts::PMTPlugin::start()
     // Get list of descriptors to add
     UStringVector cadescs;
     getValues(cadescs, u"add-ca-descriptor");
-    if (!CADescriptor::AddFromCommandLine(_add_descs, cadescs, *tsp)) {
+    if (!CADescriptor::AddFromCommandLine(duck, _add_descs, cadescs)) {
         return false;
     }
-    if (present(u"add-programinfo-id")) {
-        _add_descs.add(RegistrationDescriptor(intValue<uint32_t>(u"add-programinfo-id")));
+    opt_count = count(u"add-programinfo-id");
+    for (size_t n = 0; n < opt_count; n++) {
+        _add_descs.add(duck, RegistrationDescriptor(intValue<uint32_t>(u"add-programinfo-id", 0, n)));
+    }
+    opt_count = count(u"add-registration");
+    for (size_t n = 0; n < opt_count; n++) {
+        _add_descs.add(duck, RegistrationDescriptor(intValue<uint32_t>(u"add-registration", 0, n)));
+    }
+    opt_count = count(u"add-pid-registration");
+    for (size_t n = 0; n < opt_count; n++) {
+        PID pid = PID_NULL;
+        uint32_t id = 0;
+        if (decodeOptionForPID(u"add-pid-registration", n, pid, id)) {
+            addComponentDescriptor(pid, RegistrationDescriptor(id));
+        }
+        else {
+            return false;
+        }
     }
 
     // Get PMT PID or service description
@@ -474,7 +498,7 @@ void ts::PMTPlugin::createNewTable(BinaryTable& table)
         pmt.service_id = _service.getId();
     }
 
-    pmt.serialize(table);
+    pmt.serialize(duck, table);
 }
 
 
@@ -491,7 +515,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Process the PMT.
-    PMT pmt(table);
+    PMT pmt(duck, table);
     if (!pmt.isValid()) {
         tsp->warning(u"found invalid PMT");
         reinsert = false;
@@ -571,7 +595,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Modify audio languages
-    _languages.apply(pmt, *tsp);
+    _languages.apply(duck, pmt);
 
     // Modify AC-3 signaling from ATSC to DVB method
     if (_ac3_atsc2dvb) {
@@ -580,7 +604,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
                 smi->second.stream_type = ST_PES_PRIV;
                 if (smi->second.descs.search(DID_AC3) == smi->second.descs.count()) {
                     // No AC-3_descriptor present in this component, add one.
-                    smi->second.descs.add(AC3Descriptor());
+                    smi->second.descs.add(duck, DVBAC3Descriptor());
                 }
             }
         }
@@ -593,7 +617,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
                 smi->second.stream_type = ST_PES_PRIV;
                 if (smi->second.descs.search (DID_ENHANCED_AC3) == smi->second.descs.count()) {
                     // No enhanced_AC-3_descriptor present in this component, add one.
-                    smi->second.descs.add(EnhancedAC3Descriptor());
+                    smi->second.descs.add(duck, DVBEnhancedAC3Descriptor());
                 }
             }
         }
@@ -608,7 +632,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
         for (PMT::StreamMap::iterator smi = pmt.streams.begin(); smi != pmt.streams.end(); ++smi) {
             const DescriptorList& dlist(smi->second.descs);
             for (size_t i = dlist.search(DID_STREAM_ID); i < dlist.count(); i = dlist.search(DID_STREAM_ID, i + 1)) {
-                const StreamIdentifierDescriptor sid(*dlist[i]);
+                const StreamIdentifierDescriptor sid(duck, *dlist[i]);
                 if (sid.isValid()) {
                     ctags.set(sid.component_tag);
                 }
@@ -632,7 +656,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
                 }
             }
             // Add the stream_identifier_descriptor in the component
-            dlist.add(sid);
+            dlist.add(duck, sid);
         }
     }
 
@@ -647,7 +671,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Reserialize modified PMT.
-    pmt.serialize(table);
+    pmt.serialize(duck, table);
 }
 
 
@@ -655,7 +679,7 @@ void ts::PMTPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::PMTPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::PMTPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // As long as the PMT PID is unknown, pass packets to the service discovery.
     if (!_service.hasPMTPID()) {
@@ -677,5 +701,5 @@ ts::ProcessorPlugin::Status ts::PMTPlugin::processPacket(TSPacket& pkt, bool& fl
     setPID(_service.getPMTPID());
 
     // Finally, let the superclass do the job.
-    return AbstractTablePlugin::processPacket(pkt, flush, bitrate_changed);
+    return AbstractTablePlugin::processPacket(pkt, pkt_data);
 }

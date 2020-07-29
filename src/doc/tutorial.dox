@@ -68,8 +68,8 @@ Some interesting features in class ts::UString are:
   @ref ts::UString::scan() "scan()".
 
 Unicode strings can be converted to and from DVB strings. Most DVB-defined
-character sets are implemented (see the class ts::DVBCharset) and recognized
-when a string is read from a descriptor.
+character sets are implemented (see the classes ts::Charset and ts::DVBCharset)
+and recognized when a string is read from a descriptor.
 When a string is serialized into a binary descriptor, the
 most appropriate DVB character set is used. In practice, a few known DVB
 character sets are used and when the string cannot be encoded in any of
@@ -396,13 +396,8 @@ The class ts::SharedLibrary manipulates any type of shared library.
 The subclass ts::ApplicationSharedLibrary searches a shared library using
 TSDuck rules: if the file is not found "as it is", an optional prefix and
 a list of directories are used. This is how, for instance, searching the
-shared library named @e "ip" will end up loading the file @e tsplugin_ip.dll
+shared library named @e "zap" will end up loading the file @e tsplugin_zap.dll
 in the same directory as the application executable file.
-
-Finally, the subclass ts::PluginSharedLibrary adds the resolution of the
-@e tsp plugin interface for input, output and packet processor plugins.
-This class is probably useless for third-party application, unless they
-want to use @e tsp plugins.
 
 ## Smart-card interface {#pcscinterface}
 
@@ -555,11 +550,11 @@ the @e isValid() method.
 
 Sample deserialization:
 ~~~~
-void someFunction(const ts::BinaryTable& table)
+void someFunction(ts::DuckContext& duck, const ts::BinaryTable& table)
 {
     ts::PMT pmt;
     if (table.isValid() && table.tableId() == ts::TID_PMT) {
-        pmt.deserialize(table);
+        pmt.deserialize(duck, table);
         if (pmt.isValid()) {
             processPMT(pmt);
         }
@@ -571,9 +566,9 @@ The deserialization can also be done in the constructor.
 And the validity and _table_id_ checking is done anyway in the deserialization.
 So, the previous code can be simplified as:
 ~~~~
-void someFunction(const ts::BinaryTable& table)
+void someFunction(ts::DuckContext& duck, const ts::BinaryTable& table)
 {
-    ts::PMT pmt(table);
+    ts::PMT pmt(duck, table);
     if (pmt.isValid()) {
         processPMT(pmt);
     }
@@ -582,6 +577,8 @@ void someFunction(const ts::BinaryTable& table)
 
 Sample serialization:
 ~~~~
+ts::DuckContext duck;
+
 ts::PMT pmt;
 pmt.version = 12;
 pmt.service_id = 0x1234;
@@ -589,8 +586,12 @@ pmt.service_id = 0x1234;
 pmt.streams[0x345].stream_type = ts::ST_AVC_AUDIO;
 
 ts::BinaryTable table;
-pmt.serialize(table);
+pmt.serialize(duck, table);
 ~~~~
+
+Note that an instance of the class ts::DuckContext can store various information
+about the way to interpret incorrect signalization or preferences. Its default
+value is appropriate for a standard PSI/SI processing.
 
 Finally, specialized classes for tables and descriptors can be converted
 to and from XML using the methods @e toXML() and @e fromXML().

@@ -21,13 +21,14 @@ been introduced.
 
 # Organization of the tests {#testorg}
 
-The code of TSDuck is divided in two parts, a large C++ library (`tsduck.dll` or `tsduck.so`)
+The code of TSDuck is divided in two parts, a large C++ library (`tsduck.dll` or `libtsduck.so`)
 and a collection of small command line tools and plugins.
 
 Similarly, the tests for TSDuck are divided in two parts.
 
-- The TSDuck library has its own unitary test suite based on CppUnit. This test suite is part of
-  the [main tsduck](https://github.com/tsduck/tsduck) repository for TSDuck in directory `src/utest`.
+- The TSDuck library has its own unitary test suite based on a custom framework named "TSUnit".
+  This test suite is part of the [main tsduck](https://github.com/tsduck/tsduck) repository
+  for TSDuck in directory `src/utest`.
 
 - The tools and plugins are less easy to test. They work on large transport stream files which
   would clutter the tsduck repository. The repository [tsduck-test](https://github.com/tsduck/tsduck-test)
@@ -39,7 +40,8 @@ The two test suites are fully automated.
 
 In the main TSDuck repository, the directory `src/utest` contains the source file for
 one single program named `utest`. This program is divided in many source files (or test suites).
-Each source file contains many unitary tests. The test infrastructure is based on CppUnit.
+Each source file contains many unitary tests. The test infrastructure is based on a custom
+framework named "TSUnit".
 
 The `utest` executable is built twice, once using the TSDuck shared library and once using
 the static library. On UNIX systems, both versions of the test suite are built and run using
@@ -47,19 +49,17 @@ the static library. On UNIX systems, both versions of the test suite are built a
 ~~~~
 $ make test
   .....
-  [LD] release-x86_64/utest
-  [LD] release-x86_64/utest_static
-source release-x86_64/setenv.sh && release-x86_64/utest
+  [CXX] utestXML.cpp
+  [CXX] dependenciesForStaticLib.cpp
+  [LD] /home/tsduck/bin/release-x86_64-vmfedora/utest
+  [LD] /home/tsduck/bin/release-x86_64-vmfedora/utest_static
+/home/tsduck/bin/release-x86_64-vmfedora/utest 
 
+OK (433 tests, 10008 assertions)
 
-OK (310 tests)
+/home/tsduck/bin/release-x86_64-vmfedora/utest_static 
 
-
-source release-x86_64/setenv.sh && release-x86_64/utest_static
-
-
-OK (307 tests)
-
+OK (430 tests, 9985 assertions)
 
 $
 ~~~~
@@ -73,19 +73,15 @@ On Windows, the Visual Studio project builds two executables named
 manually or from Vidual Studio:
 
 ~~~~
-D:\Devel\tsduck> build\msvc2017\Release-x64\utests-tsduckdll.exe
+D:\tsduck> bin\Release-x64\utests-tsduckdll.exe
 
+OK (434 tests, 10017 assertions)
 
-OK (311 tests)
+D:\tsduck> bin\Release-x64\utests-tsducklib.exe
 
+OK (431 tests, 9994 assertions)
 
-D:\Devel\tsduck> build\msvc2017\Release-x64\utests-tsducklib.exe
-
-
-OK (308 tests)
-
-
-D:\Devel\tsduck>
+D:\tsduck>
 ~~~~
 
 By default, the test program runs all tests and reports failures only.
@@ -94,14 +90,9 @@ to debug individual features.
 
 The available command line options are:
 
-* `-a` : Automated test mode, default XML file: `tsduck-Results.xml`.
 * `-d` : Debug messages are output on standard error.
 * `-l` : List all tests but do not execute them.
-* `-n` : Normal basic mode (default).
-* `-o name` : Output file prefix with `-a`, `-Results.xml` is added to the prefix.
-* `-s` : Silent mode, same as `-n`, for compatibility with CUnit.
-* `-t name` : Run only one test or test suite (use `-l` for test list).
-* `-v` : Verbose mode, same as `-n`, for compatibility with CUnit.
+* `-t name` : Run only one test or test suite.
 
 First, the option `-l` is used to list all available tests:
 
@@ -111,16 +102,20 @@ AlgorithmTest
     AlgorithmTest::testEnumerateCombinations
 ArgsTest
     ArgsTest::testAccessors
-    ArgsTest::testHelp
+    ArgsTest::testAmbiguousOption
 ........
-    WebRequestTest::testInvalidURL
+    WebRequestTest::testNoRedirection
+    WebRequestTest::testReadMeFile
 XMLTest
-    XMLTest::testDocument
-    XMLTest::testInvalid
-    XMLTest::testFileBOM
-    XMLTest::testValidation
+    XMLTest::testChannels
     XMLTest::testCreation
+    XMLTest::testDocument
+    XMLTest::testEscape
+    XMLTest::testFileBOM
+    XMLTest::testInvalid
     XMLTest::testKeepOpen
+    XMLTest::testTweaks
+    XMLTest::testValidation
 $
 ~~~~
 

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,11 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsUDPReceiver.h"
 #include "tsMPEPacket.h"
 #include "tsOneShotPacketizer.h"
+#include "tsContinuityAnalyzer.h"
 #include "tsMessageQueue.h"
 #include "tsThread.h"
 TSDUCK_SOURCE;
@@ -54,13 +54,14 @@ TSDUCK_SOURCE;
 namespace ts {
     class MPEInjectPlugin: public ProcessorPlugin, private Thread
     {
+        TS_NOBUILD_NOCOPY(MPEInjectPlugin);
     public:
         // Implementation of plugin API
         MPEInjectPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
         virtual bool isRealTime() override {return true;}
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         typedef MessageQueue<Section, Mutex> SectionQueue;
@@ -77,20 +78,14 @@ namespace ts {
         SectionQueue   _section_queue;  // Queue of datagrams between the UDP server and the MPE inserter.
         TSPacketVector _mpe_packets;    // TS packets to insert, contain a packetized MPE section.
         size_t         _packet_index;   // Next index in _mpe_packets.
-        uint8_t        _next_cc;        // Next continuity counter in MPE PID.
+        ContinuityAnalyzer _cc_fixer;   // To fix continuity counters in MPE PID.
 
         // Invoked in the context of the server thread.
         virtual void main() override;
-
-        // Inaccessible operations
-        MPEInjectPlugin() = delete;
-        MPEInjectPlugin(const MPEInjectPlugin&) = delete;
-        MPEInjectPlugin& operator=(const MPEInjectPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(mpeinject, ts::MPEInjectPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"mpeinject", ts::MPEInjectPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -99,6 +94,7 @@ TSPLUGIN_DECLARE_PROCESSOR(mpeinject, ts::MPEInjectPlugin)
 
 ts::MPEInjectPlugin::MPEInjectPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Inject an incoming UDP stream into MPE (Multi-Protocol Encapsulation)", u"[options] [address:]port"),
+    Thread(ThreadAttributes().setStackSize(SERVER_THREAD_STACK_SIZE)),
     _terminate(false),
     _mpe_pid(PID_NULL),
     _replace(false),
@@ -110,10 +106,10 @@ ts::MPEInjectPlugin::MPEInjectPlugin(TSP* tsp_) :
     _section_queue(DEFAULT_MAX_QUEUED_SECTION),
     _mpe_packets(),
     _packet_index(0),
-    _next_cc(0)
+    _cc_fixer(AllPIDs, tsp)
 {
     // UDP receiver common options.
-    _sock.defineOptions(*this);
+    _sock.defineArgs(*this);
 
     option(u"mac-address", 0, STRING);
     help(u"mac-address", u"nn:nn:nn:nn:nn:nn",
@@ -164,7 +160,7 @@ bool ts::MPEInjectPlugin::start()
     const UString macAddress(value(u"mac-address"));
     const UString newDestination(value(u"new-destination"));
     const UString newSource(value(u"new-source"));
-    if (!_sock.load(*this)) {
+    if (!_sock.loadArgs(duck, *this)) {
         return false;
     }
 
@@ -186,7 +182,8 @@ bool ts::MPEInjectPlugin::start()
     _section_queue.setMaxMessages(_max_queued);
     _mpe_packets.clear();
     _packet_index = 0;
-    _next_cc = 0;
+    _cc_fixer.reset();
+    _cc_fixer.setGenerator(true);
 
     // Start the internal thread which listens to incoming UDP packet.
     _terminate = false;
@@ -218,7 +215,7 @@ bool ts::MPEInjectPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::MPEInjectPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::MPEInjectPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Abort if data PID is already present in TS and --replace is not specified.
     const PID pid = pkt.getPID();
@@ -238,7 +235,7 @@ ts::ProcessorPlugin::Status ts::MPEInjectPlugin::processPacket(TSPacket& pkt, bo
     SectionQueue::MessagePtr section;
     if (_packet_index >= _mpe_packets.size() && _section_queue.dequeue(section, 0) && !section.isNull() && section->isValid()) {
         // Packetize the section.
-        OneShotPacketizer zer(_mpe_pid, true);
+        OneShotPacketizer zer(duck, _mpe_pid, true);
         zer.addSection(section.changeMutex<NullMutex>());
         zer.getPackets(_mpe_packets);
         _packet_index = 0;
@@ -247,8 +244,7 @@ ts::ProcessorPlugin::Status ts::MPEInjectPlugin::processPacket(TSPacket& pkt, bo
     if (_packet_index < _mpe_packets.size()) {
         // There is an available TS packet, replace the current TS packet.
         pkt = _mpe_packets[_packet_index++];
-        pkt.setCC(_next_cc);
-        _next_cc = (_next_cc + 1) & CC_MASK;
+        _cc_fixer.feedPacket(pkt);
         return TSP_OK;
     }
     else {

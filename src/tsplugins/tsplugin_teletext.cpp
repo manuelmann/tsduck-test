@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsServiceDiscovery.h"
 #include "tsSubRipGenerator.h"
@@ -50,15 +49,16 @@ TSDUCK_SOURCE;
 namespace ts {
     class TeletextPlugin:
         public ProcessorPlugin,
-        private PMTHandlerInterface,
+        private SignalizationHandlerInterface,
         private TeletextHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(TeletextPlugin);
     public:
         // Implementation of plugin API
         TeletextPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool             _abort;      // Error (service not found, etc).
@@ -73,18 +73,12 @@ namespace ts {
         std::set<int>    _pages;      // Set of all Teletext pages in the PID (for information only).
 
         // Implementation of interfaces.
-        virtual void handlePMT(const PMT& table) override;
-        virtual void handleTeletextMessage(TeletextDemux& demux, const TeletextFrame& frame) override;
-
-        // Inaccessible operations
-        TeletextPlugin() = delete;
-        TeletextPlugin(const TeletextPlugin&) = delete;
-        TeletextPlugin& operator=(const TeletextPlugin&) = delete;
+        virtual void handlePMT(const PMT&, PID) override;
+        virtual void handleTeletextMessage(TeletextDemux&, const TeletextFrame&) override;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(teletext, ts::TeletextPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"teletext", ts::TeletextPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -99,11 +93,14 @@ ts::TeletextPlugin::TeletextPlugin(TSP* tsp_) :
     _maxFrames(0),
     _language(),
     _outFile(),
-    _service(this, *tsp),
-    _demux(this, NoPID),
+    _service(duck, this),
+    _demux(duck, this, NoPID),
     _srtOutput(),
     _pages()
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"colors", 'c');
     help(u"colors",
          u"Add font color tags in the subtitles. By default, no color is specified.");
@@ -155,6 +152,7 @@ ts::TeletextPlugin::TeletextPlugin(TSP* tsp_) :
 bool ts::TeletextPlugin::start()
 {
     // Get command line arguments.
+    duck.loadArgs(*this);
     _service.set(value(u"service"));
     _pid = intValue<PID>(u"pid", PID_NULL);
     _page = intValue<int>(u"page", -1);
@@ -203,7 +201,7 @@ bool ts::TeletextPlugin::stop()
 // Invoked by the service discovery when the PMT of the service is available.
 //----------------------------------------------------------------------------
 
-void ts::TeletextPlugin::handlePMT(const PMT& pmt)
+void ts::TeletextPlugin::handlePMT(const PMT& pmt, PID)
 {
     bool languageOK = _language.empty();
     bool pageOK = _page < 0;
@@ -215,7 +213,7 @@ void ts::TeletextPlugin::handlePMT(const PMT& pmt)
 
         // Look for Teletext descriptors for this component.
         for (size_t index = stream.descs.search(DID_TELETEXT); _pid == PID_NULL && index < stream.descs.count(); index = stream.descs.search(DID_TELETEXT, index + 1)) {
-            const TeletextDescriptor desc(*stream.descs[index]);
+            const TeletextDescriptor desc(duck, *stream.descs[index]);
             if (_page < 0 && _language.empty()) {
                 // If page and language are unspecified, keep the first Teletext PID.
                 _pid = pid;
@@ -294,7 +292,7 @@ void ts::TeletextPlugin::handleTeletextMessage(TeletextDemux& demux, const Telet
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::TeletextPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::TeletextPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // As long as the Teletext PID is not found, we look for the service.
     if (_pid == PID_NULL) {

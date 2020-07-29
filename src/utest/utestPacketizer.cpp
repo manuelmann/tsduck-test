@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -27,18 +27,20 @@
 //
 //----------------------------------------------------------------------------
 //
-//  CppUnit test suite for packetizer classes
+//  TSUnit test suite for packetizer classes
 //
 //----------------------------------------------------------------------------
 
 #include "tsPacketizer.h"
 #include "tsCyclingPacketizer.h"
 #include "tsStandaloneTableDemux.h"
+#include "tsDuckContext.h"
+#include "tsTSPacket.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
 #include "tsSDT.h"
 #include "tsNames.h"
-#include "utestCppUnitTest.h"
+#include "tsunit.h"
 TSDUCK_SOURCE;
 
 #include "tables/psi_pat_r4_packets.h"
@@ -50,24 +52,24 @@ TSDUCK_SOURCE;
 // The test fixture
 //----------------------------------------------------------------------------
 
-class PacketizerTest: public CppUnit::TestFixture
+class PacketizerTest: public tsunit::Test
 {
 public:
-    virtual void setUp() override;
-    virtual void tearDown() override;
+    virtual void beforeTest() override;
+    virtual void afterTest() override;
 
     void testPacketizer();
 
-    CPPUNIT_TEST_SUITE(PacketizerTest);
-    CPPUNIT_TEST(testPacketizer);
-    CPPUNIT_TEST_SUITE_END();
+    TSUNIT_TEST_BEGIN(PacketizerTest);
+    TSUNIT_TEST(testPacketizer);
+    TSUNIT_TEST_END();
 
 private:
     // Demux one table from a list of packets
     static void DemuxTable(ts::BinaryTablePtr& binTable, const char* name, const uint8_t* packets, size_t packets_size);
 };
 
-CPPUNIT_TEST_SUITE_REGISTRATION(PacketizerTest);
+TSUNIT_REGISTER(PacketizerTest);
 
 
 //----------------------------------------------------------------------------
@@ -75,12 +77,12 @@ CPPUNIT_TEST_SUITE_REGISTRATION(PacketizerTest);
 //----------------------------------------------------------------------------
 
 // Test suite initialization method.
-void PacketizerTest::setUp()
+void PacketizerTest::beforeTest()
 {
 }
 
 // Test suite cleanup method.
-void PacketizerTest::tearDown()
+void PacketizerTest::afterTest()
 {
 }
 
@@ -94,25 +96,27 @@ void PacketizerTest::DemuxTable(ts::BinaryTablePtr& binTable, const char* name, 
 {
     binTable.clear();
 
-    utest::Out() << "PacketizerTest: DemuxTable: Rebuilding " << name << std::endl;
-    CPPUNIT_ASSERT_EQUAL(size_t(0), packets_size % ts::PKT_SIZE);
+    debug() << "PacketizerTest: DemuxTable: Rebuilding " << name << std::endl;
+    TSUNIT_EQUAL(0, packets_size % ts::PKT_SIZE);
 
-    ts::StandaloneTableDemux demux(ts::AllPIDs);
+    ts::DuckContext duck;
+    ts::StandaloneTableDemux demux(duck, ts::AllPIDs);
     const ts::TSPacket* pkt = reinterpret_cast<const ts::TSPacket*>(packets);
     for (size_t pi = 0; pi < packets_size / ts::PKT_SIZE; ++pi) {
         demux.feedPacket (pkt[pi]);
     }
-    CPPUNIT_ASSERT_EQUAL(size_t(1), demux.tableCount());
+    TSUNIT_EQUAL(1, demux.tableCount());
 
     binTable = demux.tableAt(0);
-    CPPUNIT_ASSERT(!binTable.isNull());
-    CPPUNIT_ASSERT(binTable->isValid());
+    TSUNIT_ASSERT(!binTable.isNull());
+    TSUNIT_ASSERT(binTable->isValid());
 }
 
 void PacketizerTest::testPacketizer()
 {
     // Build a PAT, PMT and SDT. All these tables use one packet.
 
+    ts::DuckContext duck;
     ts::BinaryTablePtr binpat;
     ts::BinaryTablePtr binpmt;
     ts::BinaryTablePtr binsdt;
@@ -121,24 +125,24 @@ void PacketizerTest::testPacketizer()
     DemuxTable(binpmt, "PMT", psi_pmt_planete_packets, sizeof(psi_pmt_planete_packets));
     DemuxTable(binsdt, "SDT", psi_sdt_r3_packets, sizeof(psi_sdt_r3_packets));
 
-    ts::PAT pat(*binpat);
-    ts::PMT pmt(*binpmt);
-    ts::SDT sdt(*binsdt);
+    ts::PAT pat(duck, *binpat);
+    ts::PMT pmt(duck, *binpmt);
+    ts::SDT sdt(duck, *binsdt);
 
-    CPPUNIT_ASSERT(pat.isValid());
-    CPPUNIT_ASSERT(pmt.isValid());
-    CPPUNIT_ASSERT(sdt.isValid());
+    TSUNIT_ASSERT(pat.isValid());
+    TSUNIT_ASSERT(pmt.isValid());
+    TSUNIT_ASSERT(sdt.isValid());
 
     // Packetize these sections using specific repetition rates.
 
     const ts::BitRate bitrate = ts::PKT_SIZE * 8 * 10; // 10 packets per second
 
-    ts::CyclingPacketizer pzer(ts::PID_PAT, ts::CyclingPacketizer::ALWAYS, bitrate);
-    pzer.addTable(pat);        // unscheduled
-    pzer.addTable(pmt, 1000);  // 1000 ms => 1 table / second
-    pzer.addTable(sdt, 250);   // 250 ms => 4 tables / second
+    ts::CyclingPacketizer pzer(duck, ts::PID_PAT, ts::CyclingPacketizer::ALWAYS, bitrate);
+    pzer.addTable(duck, pat);        // unscheduled
+    pzer.addTable(duck, pmt, 1000);  // 1000 ms => 1 table / second
+    pzer.addTable(duck, sdt, 250);   // 250 ms => 4 tables / second
 
-    utest::Out() << "PacketizerTest: Packetizer state before packetization: " << std::endl << pzer;
+    debug() << "PacketizerTest: Packetizer state before packetization: " << std::endl << pzer;
 
     // Generate 40 packets (4 seconds)
 
@@ -149,10 +153,10 @@ void PacketizerTest::testPacketizer()
     for (int pi = 1; pi <= 40; ++pi) {
         ts::TSPacket pkt;
         pzer.getNextPacket(pkt);
-        CPPUNIT_ASSERT_EQUAL(uint8_t(ts::SYNC_BYTE), pkt.b[0]);
-        CPPUNIT_ASSERT_EQUAL(uint8_t(0), pkt.b[4]); // pointer field
+        TSUNIT_EQUAL(ts::SYNC_BYTE, pkt.b[0]);
+        TSUNIT_EQUAL(0, pkt.b[4]); // pointer field
         ts::TID tid = pkt.b[5];
-        utest::Out() << "PacketizerTest:   " << pi << ": " << ts::names::TID(tid) << std::endl;
+        debug() << "PacketizerTest:   " << pi << ": " << ts::names::TID(duck, tid) << std::endl;
         switch (tid) {
             case ts::TID_PAT:
                 pat_count++;
@@ -164,13 +168,13 @@ void PacketizerTest::testPacketizer()
                 sdt_count++;
                 break;
             default:
-                CPPUNIT_FAIL("unexpected TID");
+                TSUNIT_FAIL("unexpected TID");
         }
     }
 
-    utest::Out() << "PacketizerTest: Table count: " << pat_count << " PAT, " << pmt_count << " PMT, " << sdt_count << " SDT" << std::endl
+    debug() << "PacketizerTest: Table count: " << pat_count << " PAT, " << pmt_count << " PMT, " << sdt_count << " SDT" << std::endl
                  << "PacketizerTest: Packetizer state after packetization: " << std::endl << pzer;
 
-    CPPUNIT_ASSERT(pmt_count == 4);
-    CPPUNIT_ASSERT(sdt_count >= 15 && sdt_count <= 18);
+    TSUNIT_ASSERT(pmt_count == 4);
+    TSUNIT_ASSERT(sdt_count >= 15 && sdt_count <= 18);
 }

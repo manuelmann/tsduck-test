@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsByteBlock.h"
 TSDUCK_SOURCE;
@@ -45,27 +44,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class PatternPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(PatternPlugin);
     public:
         // Implementation of plugin API
         PatternPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         uint8_t   _offset_pusi;      // Start offset in packets with PUSI
         uint8_t   _offset_non_pusi;  // Start offset in packets without PUSI
         ByteBlock _pattern;          // Binary pattern to apply
         PIDSet    _pid_list;         // Array of pid values to filter
-
-        // Inaccessible operations
-        PatternPlugin() = delete;
-        PatternPlugin(const PatternPlugin&) = delete;
-        PatternPlugin& operator=(const PatternPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(pattern, ts::PatternPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"pattern", ts::PatternPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -137,7 +131,7 @@ bool ts::PatternPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::PatternPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::PatternPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // If the packet has no payload, or not in a selected PID, leave it unmodified
     if (!pkt.hasPayload() || !_pid_list[pkt.getPID()]) {

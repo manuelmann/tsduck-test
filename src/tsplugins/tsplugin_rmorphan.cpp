@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsBinaryTable.h"
 #include "tsSectionDemux.h"
 #include "tsCASFamily.h"
 #include "tsDescriptorList.h"
@@ -51,11 +51,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class RMOrphanPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(RMOrphanPlugin);
     public:
         // Implementation of plugin API
         RMOrphanPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         Status        _drop_status; // Status for dropped packets
@@ -70,16 +71,10 @@ namespace ts {
 
         // Adds all ECM/EMM PIDs from the specified descriptor list
         void addCA(const DescriptorList& dlist, TID parent_table);
-
-        // Inaccessible operations
-        RMOrphanPlugin() = delete;
-        RMOrphanPlugin(const RMOrphanPlugin&) = delete;
-        RMOrphanPlugin& operator=(const RMOrphanPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(rmorphan, ts::RMOrphanPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"rmorphan", ts::RMOrphanPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -90,10 +85,10 @@ ts::RMOrphanPlugin::RMOrphanPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Remove orphan (unreferenced) PID's", u"[options]"),
     _drop_status(TSP_DROP),
     _pass_pids(),
-    _demux(this)
+    _demux(duck, this)
 {
     option(u"stuffing", 's');
-    help(u"stuffing", 
+    help(u"stuffing",
          u"Replace excluded packets with stuffing (null packets) instead "
          u"of removing them. Useful to preserve bitrate.");
 }
@@ -157,7 +152,7 @@ void ts::RMOrphanPlugin::addCA(const DescriptorList& dlist, TID parent_table)
 {
     // Loop on all CA descriptors
     for (size_t index = dlist.search(DID_CA); index < dlist.count(); index = dlist.search(DID_CA, index + 1)) {
-        CADescriptor ca(*dlist[index]);
+        CADescriptor ca(duck, *dlist[index]);
         if (!ca.isValid()) {
             // Cannot deserialize a valid CA descriptor, ignore it
         }
@@ -179,13 +174,13 @@ void ts::RMOrphanPlugin::handleTable (SectionDemux& demux, const BinaryTable& ta
 
         case TID_PAT: {
             if (table.sourcePID() == PID_PAT) {
-                PAT pat (table);
+                PAT pat(duck, table);
                 if (pat.isValid()) {
                     // All all PMT PID's as referenced. Intercept PMT's in demux.
-                    passPID (pat.nit_pid);
+                    passPID(pat.nit_pid);
                     for (PAT::ServiceMap::const_iterator it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
-                        passPID (it->second);
-                        _demux.addPID (it->second);
+                        passPID(it->second);
+                        _demux.addPID(it->second);
                     }
                 }
             }
@@ -194,28 +189,28 @@ void ts::RMOrphanPlugin::handleTable (SectionDemux& demux, const BinaryTable& ta
 
         case TID_CAT: {
             if (table.sourcePID() == PID_CAT) {
-                CAT cat (table);
+                CAT cat(duck, table);
                 if (cat.isValid()) {
                     // Add all EMM PID's
-                    addCA (cat.descs, TID_CAT);
+                    addCA(cat.descs, TID_CAT);
                 }
             }
             break;
         }
 
         case TID_PMT: {
-            PMT pmt (table);
+            PMT pmt(duck, table);
             if (pmt.isValid()) {
                 // Add all program-level ECM PID's
-                addCA (pmt.descs, TID_PMT);
+                addCA(pmt.descs, TID_PMT);
                 // Add service's PCR PID (usually a referenced component or null PID)
-                passPID (pmt.pcr_pid);
+                passPID(pmt.pcr_pid);
                 // Loop on all elementary streams
                 for (PMT::StreamMap::const_iterator it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
                     // Add component's PID
-                    passPID (it->first);
+                    passPID(it->first);
                     // Add all component-level ECM PID's
-                    addCA (it->second.descs, TID_PMT);
+                    addCA(it->second.descs, TID_PMT);
                 }
             }
             break;
@@ -232,8 +227,8 @@ void ts::RMOrphanPlugin::handleTable (SectionDemux& demux, const BinaryTable& ta
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::RMOrphanPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::RMOrphanPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    _demux.feedPacket (pkt);
-    return _pass_pids [pkt.getPID()] ? TSP_OK : _drop_status;
+    _demux.feedPacket(pkt);
+    return _pass_pids[pkt.getPID()] ? TSP_OK : _drop_status;
 }

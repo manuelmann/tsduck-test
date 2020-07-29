@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,10 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsService.h"
 #include "tsSectionDemux.h"
+#include "tsBinaryTable.h"
 #include "tsPAT.h"
 #include "tsPMT.h"
 #include "tsSDT.h"
@@ -50,11 +50,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class ClearPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(ClearPlugin);
     public:
         // Implementation of plugin API
         ClearPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool          _abort;           // Error (service not found, etc)
@@ -74,19 +75,13 @@ namespace ts {
         virtual void handleTable (SectionDemux&, const BinaryTable&) override;
 
         // Process specific tables
-        void processPAT (PAT&);
-        void processPMT (PMT&);
-        void processSDT (SDT&);
-
-        // Inaccessible operations
-        ClearPlugin() = delete;
-        ClearPlugin(const ClearPlugin&) = delete;
-        ClearPlugin& operator=(const ClearPlugin&) = delete;
+        void processPAT(PAT&);
+        void processPMT(PMT&);
+        void processSDT(SDT&);
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(clear, ts::ClearPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"clear", ts::ClearPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -106,8 +101,11 @@ ts::ClearPlugin::ClearPlugin(TSP* tsp_) :
     _current_pkt(0),
     _last_clear_pkt(0),
     _clear_pids(),
-    _demux(this)
+    _demux(duck, this)
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"audio", 'a');
     help(u"audio",
          u"Check only audio PIDs for clear packets. By default, audio and video "
@@ -150,6 +148,7 @@ ts::ClearPlugin::ClearPlugin(TSP* tsp_) :
 bool ts::ClearPlugin::start()
 {
     // Get option values
+    duck.loadArgs(*this);
     _service.set (value(u"service"));
     _video_only = present(u"video");
     _audio_only = present(u"audio");
@@ -178,13 +177,13 @@ bool ts::ClearPlugin::start()
 // Invoked by the demux when a complete table is available.
 //----------------------------------------------------------------------------
 
-void ts::ClearPlugin::handleTable (SectionDemux& demux, const BinaryTable& table)
+void ts::ClearPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 {
     switch (table.tableId()) {
 
         case TID_PAT: {
             if (table.sourcePID() == PID_PAT) {
-                PAT pat (table);
+                PAT pat(duck, table);
                 if (pat.isValid()) {
                     processPAT (pat);
                 }
@@ -194,7 +193,7 @@ void ts::ClearPlugin::handleTable (SectionDemux& demux, const BinaryTable& table
 
         case TID_SDT_ACT: {
             if (table.sourcePID() == PID_SDT) {
-                SDT sdt (table);
+                SDT sdt(duck, table);
                 if (sdt.isValid()) {
                     processSDT (sdt);
                 }
@@ -203,7 +202,7 @@ void ts::ClearPlugin::handleTable (SectionDemux& demux, const BinaryTable& table
         }
 
         case TID_PMT: {
-            PMT pmt (table);
+            PMT pmt(duck, table);
             if (pmt.isValid() && _service.hasId (pmt.service_id)) {
                 processPMT (pmt);
             }
@@ -213,7 +212,7 @@ void ts::ClearPlugin::handleTable (SectionDemux& demux, const BinaryTable& table
         case TID_TOT: {
             if (table.sourcePID() == PID_TOT) {
                 // Save last TOT
-                _last_tot.deserialize(table);
+                _last_tot.deserialize(duck, table);
             }
             break;
         }
@@ -229,19 +228,19 @@ void ts::ClearPlugin::handleTable (SectionDemux& demux, const BinaryTable& table
 //  This method processes a Service Description Table (SDT).
 //----------------------------------------------------------------------------
 
-void ts::ClearPlugin::processSDT (SDT& sdt)
+void ts::ClearPlugin::processSDT(SDT& sdt)
 {
     // Look for the service by name
     uint16_t service_id;
     assert (_service.hasName());
-    if (!sdt.findService (_service.getName(), service_id)) {
+    if (!sdt.findService(duck, _service.getName(), service_id)) {
         tsp->error(u"service \"%s\" not found in SDT", {_service.getName()});
         _abort = true;
         return;
     }
 
     // Remember service id
-    _service.setId (service_id);
+    _service.setId(service_id);
     tsp->verbose(u"found service \"%s\", service id is 0x%X", {_service.getName(), _service.getId()});
 
     // No longer need to filter the SDT
@@ -257,7 +256,7 @@ void ts::ClearPlugin::processSDT (SDT& sdt)
 //  This method processes a Program Association Table (PAT).
 //----------------------------------------------------------------------------
 
-void ts::ClearPlugin::processPAT (PAT& pat)
+void ts::ClearPlugin::processPAT(PAT& pat)
 {
     if (_service.hasId()) {
         // The service id is known, search it in the PAT
@@ -296,7 +295,7 @@ void ts::ClearPlugin::processPAT (PAT& pat)
 //  This method processes a Program Map Table (PMT).
 //----------------------------------------------------------------------------
 
-void ts::ClearPlugin::processPMT (PMT& pmt)
+void ts::ClearPlugin::processPMT(PMT& pmt)
 {
     // Collect all audio/video PIDS
     _clear_pids.reset();
@@ -314,7 +313,7 @@ void ts::ClearPlugin::processPMT (PMT& pmt)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::ClearPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     const PID pid = pkt.getPID();
     bool previous_pass = _pass_packets;

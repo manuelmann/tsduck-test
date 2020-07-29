@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPacketDecapsulation.h"
 TSDUCK_SOURCE;
@@ -45,27 +44,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class DecapPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(DecapPlugin);
     public:
         // Implementation of plugin API
         DecapPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool                _ignoreErrors;  // Ignore encapsulation errors.
         PID                 _pid;           // Input PID.
         PacketDecapsulation _decap;         // Decapsulation engine.
-
-        // Inaccessible operations
-        DecapPlugin() = delete;
-        DecapPlugin(const DecapPlugin&) = delete;
-        DecapPlugin& operator=(const DecapPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(decap, ts::DecapPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"decap", ts::DecapPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -116,7 +110,7 @@ bool ts::DecapPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::DecapPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::DecapPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     if (_decap.processPacket(pkt) || _ignoreErrors || _decap.lastError().empty()) {
         return TSP_OK;

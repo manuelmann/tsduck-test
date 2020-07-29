@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,9 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsHiDesDevice.h"
-#include "tsModulation.h"
-#include "tsCOM.h"
+#include "tsModulationArgs.h"
 TSDUCK_SOURCE;
 
 
@@ -47,32 +45,26 @@ TSDUCK_SOURCE;
 namespace ts {
     class HiDesOutput: public OutputPlugin
     {
+        TS_NOBUILD_NOCOPY(HiDesOutput);
     public:
         // Implementation of plugin API
         HiDesOutput(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual bool send(const TSPacket*, size_t) override;
+        virtual bool send(const TSPacket*, const TSPacketMetadata*, size_t) override;
         virtual bool isRealTime() override {return true;}
         virtual BitRate getBitrate() override;
 
     private:
-        COM             _com;         // COM initialization helper
         int             _dev_number;  // Device adapter number.
         UString         _dev_name;    // Device name.
         BitRate         _bitrate;     // Nominal output bitrate.
         HiDesDevice     _device;      // HiDes device object.
         HiDesDeviceInfo _dev_info;    // HiDes device information.
-
-        // Inaccessible operations
-        HiDesOutput() = delete;
-        HiDesOutput(const HiDesOutput&) = delete;
-        HiDesOutput& operator=(const HiDesOutput&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_OUTPUT(hides, ts::HiDesOutput)
+TS_REGISTER_OUTPUT_PLUGIN(u"hides", ts::HiDesOutput);
 
 
 //----------------------------------------------------------------------------
@@ -81,7 +73,6 @@ TSPLUGIN_DECLARE_OUTPUT(hides, ts::HiDesOutput)
 
 ts::HiDesOutput::HiDesOutput(TSP* tsp_) :
     OutputPlugin(tsp_, u"Send packets to a HiDes modulator device", u"[options]"),
-    _com(*tsp_),
     _dev_number(-1),
     _dev_name(),
     _bitrate(0),
@@ -95,7 +86,7 @@ ts::HiDesOutput::HiDesOutput(TSP* tsp_) :
 
     option(u"bandwidth", 'b', Enumeration({
         {u"5", BW_5_MHZ},
-        {u"6", BW_5_MHZ},
+        {u"6", BW_6_MHZ},
         {u"7", BW_7_MHZ},
         {u"8", BW_8_MHZ},
     }));
@@ -163,11 +154,6 @@ ts::HiDesOutput::HiDesOutput(TSP* tsp_) :
 
 bool ts::HiDesOutput::start()
 {
-    // Check that COM was correctly initialized
-    if (!_com.isInitialized()) {
-        tsp->error(u"COM initialization failure");
-        return false;
-    }
     if (_device.isOpen()) {
         tsp->error(u"already started");
         return false;
@@ -183,7 +169,7 @@ bool ts::HiDesOutput::start()
     int dc_i = 0;
     int dc_q = 0;
 
-    TunerParametersDVBT params;
+    ModulationArgs params;
     params.bandwidth = enumValue<BandWidth>(u"bandwidth", BW_8_MHZ);
     params.modulation = enumValue<Modulation>(u"constellation", QAM_64);
     params.frequency = intValue<uint64_t>(u"frequency", 0);
@@ -290,7 +276,7 @@ ts::BitRate ts::HiDesOutput::getBitrate()
 // Output method
 //----------------------------------------------------------------------------
 
-bool ts::HiDesOutput::send(const TSPacket* pkt, size_t packet_count)
+bool ts::HiDesOutput::send(const TSPacket* pkt, const TSPacketMetadata* pkt_data, size_t packet_count)
 {
     return _device.send(pkt, packet_count, *tsp, tsp);
 }

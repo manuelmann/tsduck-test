@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsBitRateRegulator.h"
 #include "tsPCRRegulator.h"
@@ -48,27 +47,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class RegulatePlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(RegulatePlugin);
     public:
         // Implementation of plugin API
         RegulatePlugin(TSP*);
         virtual bool start() override;
         virtual bool isRealTime() override {return true;}
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         bool             _pcr_synchronous;
         BitRateRegulator _bitrate_regulator;
         PCRRegulator     _pcr_regulator;
-
-        // Inaccessible operations
-        RegulatePlugin() = delete;
-        RegulatePlugin(const RegulatePlugin&) = delete;
-        RegulatePlugin& operator=(const RegulatePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(regulate, ts::RegulatePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"regulate", ts::RegulatePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -153,13 +147,19 @@ bool ts::RegulatePlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::RegulatePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::RegulatePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
+    bool flush = false;
+    bool bitrate_changed = false;
+
     if (_pcr_synchronous) {
         flush = _pcr_regulator.regulate(pkt);
     }
     else {
         _bitrate_regulator.regulate(tsp->bitrate(), flush, bitrate_changed);
     }
+
+    pkt_data.setFlush(flush);
+    pkt_data.setBitrateChanged(bitrate_changed);
     return TSP_OK;
 }

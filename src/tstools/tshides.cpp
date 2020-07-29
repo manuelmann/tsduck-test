@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,30 +32,32 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
-#include "tsCOM.h"
+#include "tsHFBand.h"
 #include "tsHiDesDevice.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 
 //----------------------------------------------------------------------------
 //  Command line options
 //----------------------------------------------------------------------------
 
-class HiDesOptions: public ts::Args
-{
-public:
-    bool          count;       // Only display device count.
-    bool          gain_range;  // Only display output gain range.
-    int           dev_number;  // Device adapter number.
-    ts::UString   dev_name;    // Device name.
-    uint64_t      frequency;   // Carrier frequency, in Hz.
-    ts::BandWidth bandwidth;   // Bandwidth.
+namespace {
+    class HiDesOptions: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(HiDesOptions);
+    public:
+        HiDesOptions(int argc, char *argv[]);
 
-    // Constructor:
-    HiDesOptions(int argc, char *argv[]);
-};
+        bool          count;       // Only display device count.
+        bool          gain_range;  // Only display output gain range.
+        int           dev_number;  // Device adapter number.
+        ts::UString   dev_name;    // Device name.
+        uint64_t      frequency;   // Carrier frequency, in Hz.
+        ts::BandWidth bandwidth;   // Bandwidth.
+    };
+}
 
-// Constructor.
 HiDesOptions::HiDesOptions(int argc, char *argv[]) :
     ts::Args(u"List HiDes modulator devices", u"[options]"),
     count(false),
@@ -101,7 +103,14 @@ HiDesOptions::HiDesOptions(int argc, char *argv[]) :
     dev_number = intValue<int>(u"adapter", -1);
     dev_name = value(u"device");
     bandwidth = enumValue<ts::BandWidth>(u"bandwidth", ts::BW_8_MHZ);
-    frequency = intValue<uint64_t>(u"frequency", ts::UHF::Frequency(ts::UHF::FIRST_CHANNEL));
+    if (present(u"frequency")) {
+        frequency = intValue<uint64_t>(u"frequency");
+    }
+    else {
+        // Get UHF band description in the default region.
+        const ts::HFBand* uhf = ts::HFBand::GetBand(u"", u"UHF", *this);
+        frequency = uhf->frequency(uhf->firstChannel());
+    }
 
     if (count && gain_range) {
         error(u"--count and --gain-range are mutually exclusive");
@@ -112,88 +121,68 @@ HiDesOptions::HiDesOptions(int argc, char *argv[]) :
 
 
 //----------------------------------------------------------------------------
-//  Main code. Isolated from main() to ensure that destructors are invoked
-//  before COM uninitialize.
-//----------------------------------------------------------------------------
-
-namespace {
-    void MainCode(HiDesOptions& opt)
-    {
-        ts::HiDesDevice dev;
-        ts::HiDesDeviceInfo info;
-        ts::HiDesDeviceInfoList devices;
-        const bool one_device = opt.dev_number >= 0 || !opt.dev_name.empty();
-        bool ok = false;
-
-        // Open one device or get all devices.
-        if (!opt.gain_range && !one_device) {
-            // Get all HiDes devices.
-            ok = ts::HiDesDevice::GetAllDevices(devices, opt);
-        }
-        else if (!opt.dev_name.empty()) {
-            // Open one device by name.
-            ok = dev.open(opt.dev_name, opt);
-        }
-        else {
-            // One one device by number (default: first device).
-            ok = dev.open(std::max<int>(0, opt.dev_number), opt);
-        }
-
-        if (!ok) {
-            return;
-        }
-        else if (opt.count) {
-            // Display device count.
-            std::cout << devices.size() << std::endl;
-        }
-        else if (opt.gain_range) {
-            // Display gain range.
-            int min, max;
-            if (dev.getInfo(info, opt) && dev.getGainRange(min, max, opt.frequency, opt.bandwidth, opt)) {
-                std::cout << ts::UString::Format(u"Device: %s", {info.toString()}) << std::endl
-                          << ts::UString::Format(u"Frequency: %'d Hz", {opt.frequency}) << std::endl
-                          << ts::UString::Format(u"Bandwidth: %s", {ts::BandWidthEnum.name(opt.bandwidth)}) << std::endl
-                          << ts::UString::Format(u"Min. gain: %d dB", {min}) << std::endl
-                          << ts::UString::Format(u"Max. gain: %d dB", {max}) << std::endl;
-            }
-        }
-        else if (one_device) {
-            // Display one device.
-            if (dev.getInfo(info, opt)) {
-                std::cout << info.toString(opt.verbose()) << std::endl;
-            }
-        }
-        else if (devices.empty()) {
-            std::cout << "No HiDes device found" << std::endl;
-        }
-        else {
-            // Display all devices.
-            if (opt.verbose()) {
-                std::cout << "Found " << devices.size() << " HiDes device" << (devices.size() > 1 ? "s" : "") << std::endl << std::endl;
-            }
-            for (auto it = devices.begin(); it != devices.end(); ++it) {
-                std::cout << it->toString(opt.verbose()) << std::endl;
-            }
-        }
-    }
-}
-
-
-//----------------------------------------------------------------------------
 //  Program entry point
 //----------------------------------------------------------------------------
 
 int MainCode(int argc, char *argv[])
 {
     HiDesOptions opt(argc, argv);
-    ts::COM com(opt);
+    ts::HiDesDevice dev;
+    ts::HiDesDeviceInfo info;
+    ts::HiDesDeviceInfoList devices;
+    const bool one_device = opt.dev_number >= 0 || !opt.dev_name.empty();
+    bool ok = false;
 
-    if (com.isInitialized()) {
-        MainCode(opt);
+    // Open one device or get all devices.
+    if (!opt.gain_range && !one_device) {
+        // Get all HiDes devices.
+        ok = ts::HiDesDevice::GetAllDevices(devices, opt);
+    }
+    else if (!opt.dev_name.empty()) {
+        // Open one device by name.
+        ok = dev.open(opt.dev_name, opt);
+    }
+    else {
+        // One one device by number (default: first device).
+        ok = dev.open(std::max<int>(0, opt.dev_number), opt);
     }
 
-    opt.exitOnError();
-    return EXIT_SUCCESS;
-}
+    if (!ok) {
+        return EXIT_FAILURE;
+    }
+    else if (opt.count) {
+        // Display device count.
+        std::cout << devices.size() << std::endl;
+    }
+    else if (opt.gain_range) {
+        // Display gain range.
+        int min, max;
+        if (dev.getInfo(info, opt) && dev.getGainRange(min, max, opt.frequency, opt.bandwidth, opt)) {
+            std::cout << ts::UString::Format(u"Device: %s", {info.toString()}) << std::endl
+                << ts::UString::Format(u"Frequency: %'d Hz", {opt.frequency}) << std::endl
+                << ts::UString::Format(u"Bandwidth: %s", {ts::BandWidthEnum.name(opt.bandwidth)}) << std::endl
+                << ts::UString::Format(u"Min. gain: %d dB", {min}) << std::endl
+                << ts::UString::Format(u"Max. gain: %d dB", {max}) << std::endl;
+        }
+    }
+    else if (one_device) {
+        // Display one device.
+        if (dev.getInfo(info, opt)) {
+            std::cout << info.toString(opt.verbose()) << std::endl;
+        }
+    }
+    else if (devices.empty()) {
+        std::cout << "No HiDes device found" << std::endl;
+    }
+    else {
+        // Display all devices.
+        if (opt.verbose()) {
+            std::cout << "Found " << devices.size() << " HiDes device" << (devices.size() > 1 ? "s" : "") << std::endl << std::endl;
+        }
+        for (auto it = devices.begin(); it != devices.end(); ++it) {
+            std::cout << it->toString(opt.verbose()) << std::endl;
+        }
+    }
 
-TS_MAIN(MainCode)
+    return opt.valid() ? EXIT_SUCCESS : EXIT_FAILURE;
+}

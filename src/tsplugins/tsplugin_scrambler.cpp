@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -28,11 +28,10 @@
 //----------------------------------------------------------------------------
 //
 //  Transport stream processor shared library:
-//  DVB-CSA or ATIS-IDSA Scrambler
+//  DVB-CSA, DVB-CISSA or ATIS-IDSA Scrambler
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsServiceDiscovery.h"
 #include "tsTSScrambling.h"
@@ -95,15 +94,16 @@ TSDUCK_SOURCE;
 namespace ts {
     class ScramblerPlugin:
         public ProcessorPlugin,
-        private PMTHandlerInterface
+        private SignalizationHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(ScramblerPlugin);
     public:
         // Implementation of plugin API
         ScramblerPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Description of a crypto-period.
@@ -112,6 +112,7 @@ namespace ts {
         // is set in ScramblerPlugin.
         class CryptoPeriod: private ECMGClientHandlerInterface
         {
+            TS_NOCOPY(CryptoPeriod);
         public:
             // Default constructor.
             CryptoPeriod();
@@ -150,10 +151,6 @@ namespace ts {
 
             // Invoked when an ECM is available, maybe in the context of an external thread.
             virtual void handleECM(const ecmgscs::ECMResponse&) override;
-
-            // Inaccessible operations
-            CryptoPeriod(const CryptoPeriod&) = delete;
-            CryptoPeriod& operator=(const CryptoPeriod&) = delete;
         };
 
         // ScramblerPlugin parameters, remain constant after start()
@@ -216,17 +213,11 @@ namespace ts {
         bool tryExitDegradedMode();
 
         // Invoked when the PMT of the service is available.
-        virtual void handlePMT(const PMT&) override;
-
-        // Inaccessible operations
-        ScramblerPlugin() = delete;
-        ScramblerPlugin(const ScramblerPlugin&) = delete;
-        ScramblerPlugin& operator=(const ScramblerPlugin&) = delete;
+        virtual void handlePMT(const PMT&, PID) override;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(scrambler, ts::ScramblerPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"scrambler", ts::ScramblerPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -235,7 +226,7 @@ TSPLUGIN_DECLARE_PROCESSOR(scrambler, ts::ScramblerPlugin)
 
 ts::ScramblerPlugin::ScramblerPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"DVB scrambler", u"[options] [service]"),
-    _service(this, *tsp),
+    _service(duck, this),
     _use_service(false),
     _component_level(false),
     _scramble_audio(false),
@@ -273,8 +264,11 @@ ts::ScramblerPlugin::ScramblerPlugin(TSP* tsp_) :
     _current_cw(0),
     _current_ecm(0),
     _scrambling(*tsp),
-    _pzer_pmt()
+    _pzer_pmt(duck)
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     option(u"", 0, STRING, 0, 1);
     help(u"",
          u"Specifies the optional service to scramble. If no service is specified, a "
@@ -350,8 +344,8 @@ ts::ScramblerPlugin::ScramblerPlugin(TSP* tsp_) :
          u"is always on in offline mode.");
 
     // ECMG and scrambling options.
-    _ecmg_args.defineOptions(*this);
-    _scrambling.defineOptions(*this);
+    _ecmg_args.defineArgs(*this);
+    _scrambling.defineArgs(*this);
 }
 
 
@@ -362,6 +356,7 @@ ts::ScramblerPlugin::ScramblerPlugin(TSP* tsp_) :
 bool ts::ScramblerPlugin::getOptions()
 {
     // Plugin parameters.
+    duck.loadArgs(*this);
     _use_service = present(u"");
     _service.set(value(u""));
     getIntValues(_scrambled_pids, u"pid");
@@ -382,7 +377,7 @@ bool ts::ScramblerPlugin::getOptions()
     }
 
     // Other common parameters.
-    if (!_ecmg_args.loadArgs(*this) || !_scrambling.loadArgs(*this)) {
+    if (!_ecmg_args.loadArgs(duck, *this) || !_scrambling.loadArgs(duck, *this)) {
         return false;
     }
 
@@ -433,6 +428,13 @@ bool ts::ScramblerPlugin::start()
     _partial_clear = 0;
     _update_pmt = false;
     _delay_start = 0;
+    _current_cw = 0;
+    _current_ecm = 0;
+
+    // Initialize the scrambling engine.
+    if (!_scrambling.start()) {
+        return false;
+    }
 
     // Initialize ECMG.
     if (_need_ecm) {
@@ -460,8 +462,6 @@ bool ts::ScramblerPlugin::start()
             tsp->debug(u"crypto-period duration: %'d ms, delay start: %'d ms", {_ecmg_args.cp_duration, _delay_start});
 
             // Create first and second crypto-periods
-            _current_cw = 0;
-            _current_ecm = 0;
             _cp[0].initCycle(this, 0);
             if (!_cp[0].initScramblerKey()) {
                 return false;
@@ -497,6 +497,9 @@ bool ts::ScramblerPlugin::stop()
         _ecmg.disconnect();
     }
 
+    // Terminate the scrambling engine.
+    _scrambling.stop();
+
     tsp->debug(u"scrambled %'d packets in %'d PID's", {_scrambled_count, _scrambled_pids.count()});
     return true;
 }
@@ -506,7 +509,7 @@ bool ts::ScramblerPlugin::stop()
 //  This method processes the PMT of the service.
 //----------------------------------------------------------------------------
 
-void ts::ScramblerPlugin::handlePMT(const PMT& table)
+void ts::ScramblerPlugin::handlePMT(const PMT& table, PID)
 {
     assert(_use_service);
 
@@ -555,7 +558,7 @@ void ts::ScramblerPlugin::handlePMT(const PMT& table)
     // Add a scrambling_descriptor in the PMT for scrambling other than DVB-CSA2.
     if (_scrambling.scramblingType() != SCRAMBLING_DVB_CSA2) {
         _update_pmt = true;
-        pmt.descs.add(ScramblingDescriptor(_scrambling.scramblingType()));
+        pmt.descs.add(duck, ScramblingDescriptor(_scrambling.scramblingType()));
     }
 
     // With ECM generation, modify the PMT
@@ -571,13 +574,13 @@ void ts::ScramblerPlugin::handlePMT(const PMT& table)
             // Add a CA_descriptor in each scrambled component
             for (PMT::StreamMap::iterator it = pmt.streams.begin(); it != pmt.streams.end(); ++it) {
                 if (_scrambled_pids.test(it->first)) {
-                    it->second.descs.add(ca_desc);
+                    it->second.descs.add(duck, ca_desc);
                 }
             }
         }
         else {
             // Add one single CA_descriptor at program level
-            pmt.descs.add(ca_desc);
+            pmt.descs.add(duck, ca_desc);
         }
     }
 
@@ -585,7 +588,7 @@ void ts::ScramblerPlugin::handlePMT(const PMT& table)
     if (_update_pmt) {
         _pzer_pmt.removeSections(TID_PMT, pmt.service_id);
         _pzer_pmt.setPID(_service.getPMTPID());
-        _pzer_pmt.addTable(pmt);
+        _pzer_pmt.addTable(duck, pmt);
     }
 
     // Next crypto-period.
@@ -680,8 +683,23 @@ bool ts::ScramblerPlugin::tryExitDegradedMode()
 
 bool ts::ScramblerPlugin::changeCW()
 {
-    // Allowed to change CW only if not in degraded mode
-    if (!inDegradedMode()) {
+    if (_scrambling.hasFixedCW()) {
+        // A list of fixed CW was loaded from a file.
+
+        // Point to next crypto-period
+        _current_cw = (_current_cw + 1) & 0x01;
+
+        // Determine new transition point.
+        if (_need_cp) {
+            _pkt_change_cw = _packet_count + PacketDistance(_ts_bitrate, _ecmg_args.cp_duration);
+        }
+
+        // Set next crypto-period key.
+        return _scrambling.setEncryptParity(int(_current_cw));
+    }
+    else if (!inDegradedMode()) {
+        // Random CW and ECM generation at each crypto-period.
+        // Allowed to change CW only if not in degraded mode.
 
         // Point to next crypto-period
         _current_cw = (_current_cw + 1) & 0x01;
@@ -727,7 +745,7 @@ void ts::ScramblerPlugin::changeECM()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::ScramblerPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::ScramblerPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Count packets
     _packet_count++;
@@ -915,11 +933,12 @@ void ts::ScramblerPlugin::CryptoPeriod::generateECM()
         // Synchronous ECM generation
         ecmgscs::ECMResponse response;
         if (!_plugin->_ecmg.generateECM(_cp_number,
-                                           _cw_current,
-                                           _cw_next,
-                                           _plugin->_ecmg_args.access_criteria,
-                                           uint16_t(_plugin->_ecmg_args.cp_duration / 100),
-                                           response)) {
+                                        _cw_current,
+                                        _cw_next,
+                                        _plugin->_ecmg_args.access_criteria,
+                                        uint16_t(_plugin->_ecmg_args.cp_duration / 100),
+                                        response))
+        {
             // Error, message already reported
             _plugin->_abort = true;
         }
@@ -930,11 +949,12 @@ void ts::ScramblerPlugin::CryptoPeriod::generateECM()
     else {
         // Asynchronous ECM generation
         if (!_plugin->_ecmg.submitECM(_cp_number,
-                                         _cw_current,
-                                         _cw_next,
-                                         _plugin->_ecmg_args.access_criteria,
-                                         uint16_t(_plugin->_ecmg_args.cp_duration / 100),
-                                         this)) {
+                                      _cw_current,
+                                      _cw_next,
+                                      _plugin->_ecmg_args.access_criteria,
+                                      uint16_t(_plugin->_ecmg_args.cp_duration / 100),
+                                      this))
+        {
             // Error, message already reported
             _plugin->_abort = true;
         }
@@ -957,7 +977,7 @@ void ts::ScramblerPlugin::CryptoPeriod::handleECM(const ecmgscs::ECMResponse& re
             return;
         }
         // Packetize the section
-        OneShotPacketizer pzer(_plugin->_ecm_pid, true);
+        OneShotPacketizer pzer(_plugin->duck, _plugin->_ecm_pid, true);
         pzer.addSection(sp);
         pzer.getPackets(_ecm);
 
@@ -987,7 +1007,7 @@ void ts::ScramblerPlugin::CryptoPeriod::handleECM(const ecmgscs::ECMResponse& re
 // Get next ECM packet
 //----------------------------------------------------------------------------
 
-void ts::ScramblerPlugin::CryptoPeriod::getNextECMPacket (TSPacket& pkt)
+void ts::ScramblerPlugin::CryptoPeriod::getNextECMPacket(TSPacket& pkt)
 {
     if (!_ecm_ok || _ecm.size() == 0) {
         // No ECM, return a null packet

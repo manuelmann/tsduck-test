@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsBinaryTable.h"
 #include "tsSectionDemux.h"
 #include "tsService.h"
 #include "tsTime.h"
@@ -52,20 +52,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class EITPlugin: public ProcessorPlugin, private TableHandlerInterface, private SectionHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(EITPlugin);
     public:
         // Implementation of plugin API
         EITPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Description of one service
         class ServiceDesc: public Service
         {
         public:
-            // Constructor
+            // Constructor, destructor.
             ServiceDesc();
+            virtual ~ServiceDesc();
 
             // Public fields
             SectionCounter eitpf_count;
@@ -101,16 +103,10 @@ namespace ts {
 
         // Number of days in a duration, used for EPG depth
         static int Days(const MilliSecond& ms) { return int((ms + MilliSecPerDay - 1) / MilliSecPerDay); }
-
-        // Inaccessible operations
-        EITPlugin() = delete;
-        EITPlugin(const EITPlugin&) = delete;
-        EITPlugin& operator=(const EITPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(eit, ts::EITPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"eit", ts::EITPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -125,7 +121,7 @@ ts::EITPlugin::EITPlugin(TSP* tsp_) :
     _eitpf_oth_count(0),
     _eits_act_count(0),
     _eits_oth_count(0),
-    _demux(this, this),
+    _demux(duck, this, this),
     _services(),
     _ts_id()
 {
@@ -143,6 +139,10 @@ ts::EITPlugin::ServiceDesc::ServiceDesc() :
     eitpf_count(0),
     eits_count(0),
     max_time(0)
+{
+}
+
+ts::EITPlugin::ServiceDesc::~ServiceDesc()
 {
 }
 
@@ -195,7 +195,7 @@ bool ts::EITPlugin::start()
     _eits_act_count = 0;
     _eits_oth_count = 0;
     _services.clear();
-    _ts_id.reset();
+    _ts_id.clear();
     _demux.reset();
     _demux.addPID(PID_PAT);
     _demux.addPID(PID_SDT);
@@ -308,7 +308,7 @@ void ts::EITPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 
         case TID_PAT: {
             if (table.sourcePID() == PID_PAT) {
-                PAT pat(table);
+                PAT pat(duck, table);
                 if (pat.isValid()) {
                     _ts_id = pat.ts_id;
                     tsp->verbose(u"TS id is %d (0x%X)", {pat.ts_id, pat.ts_id});
@@ -325,15 +325,15 @@ void ts::EITPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
         case TID_SDT_ACT:
         case TID_SDT_OTH: {
             if (table.sourcePID() == PID_SDT) {
-                SDT sdt(table);
+                SDT sdt(duck, table);
                 if (sdt.isValid()) {
                     // Register all services
                     for (SDT::ServiceMap::const_iterator it = sdt.services.begin(); it != sdt.services.end(); ++it) {
                         ServiceDesc& serv(getServiceDesc(sdt.ts_id, it->first));
                         serv.setONId(sdt.onetw_id);
-                        serv.setType(it->second.serviceType());
-                        serv.setName(it->second.serviceName());
-                        serv.setProvider(it->second.providerName());
+                        serv.setTypeDVB(it->second.serviceType(duck));
+                        serv.setName(it->second.serviceName(duck));
+                        serv.setProvider(it->second.providerName(duck));
                         serv.setEITsPresent(it->second.EITs_present);
                         serv.setEITpfPresent(it->second.EITpf_present);
                         serv.setCAControlled(it->second.CA_controlled);
@@ -345,7 +345,7 @@ void ts::EITPlugin::handleTable(SectionDemux& demux, const BinaryTable& table)
 
         case TID_TDT: {
             if (table.sourcePID() == PID_TDT) {
-                TDT tdt(table);
+                TDT tdt(duck, table);
                 if (tdt.isValid()) {
                     _last_utc = tdt.utc_time;
                 }
@@ -444,7 +444,7 @@ void ts::EITPlugin::handleSection (SectionDemux& demux, const Section& sect)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::EITPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::EITPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     _demux.feedPacket(pkt);
     return TSP_OK;

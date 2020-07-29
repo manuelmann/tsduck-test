@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,12 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
-#include "tsInputRedirector.h"
+#include "tsDuckContext.h"
+#include "tsTSFile.h"
 #include "tsTablesLogger.h"
+#include "tsPagerArgs.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 // With static link, enforce a reference to MPEG/DVB structures.
 #if defined(TSDUCK_STATIC_LIBRARY)
@@ -47,32 +50,59 @@ const ts::StaticReferencesDVB dependenciesForStaticLib;
 //  Command line options
 //----------------------------------------------------------------------------
 
-struct Options: public ts::Args
-{
-    Options(int argc, char *argv[]);
+namespace {
+    class Options: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(Options);
+    public:
+        Options(int argc, char *argv[]);
 
-    ts::UString           infile;   // Input file name.
-    ts::TablesLoggerArgs  logger;   // Table logging options.
-    ts::TablesDisplayArgs display;  // Table formatting options.
-};
+        ts::DuckContext    duck;     // TSDuck execution context.
+        ts::TablesDisplay  display;  // Table formatting.
+        ts::TablesLogger   logger;   // Table logging.
+        ts::PagerArgs      pager;    // Output paging options.
+        ts::UString        infile;   // Input file name.
+        ts::TSPacketFormat format;   // Input file format.
+    };
+}
 
 Options::Options(int argc, char *argv[]) :
     Args(u"Collect PSI/SI tables from an MPEG transport stream", u"[options] [filename]"),
+    duck(this),
+    display(duck),
+    logger(display),
+    pager(true, true),
     infile(),
-    logger(),
-    display()
+    format(ts::TSPacketFormat::AUTODETECT)
 {
-    option(u"", 0, STRING, 0, 1);
-    help(u"", u"Input MPEG capture file (standard input if omitted).");
+    duck.defineArgsForCAS(*this);
+    duck.defineArgsForPDS(*this);
+    duck.defineArgsForStandards(*this);
+    duck.defineArgsForCharset(*this);
+    pager.defineArgs(*this);
+    logger.defineArgs(*this);
+    display.defineArgs(*this);
 
-    logger.defineOptions(*this);
-    display.defineOptions(*this);
+    option(u"", 0, STRING, 0, 1);
+    help(u"", u"Input transport stream file (standard input if omitted).");
+
+    option(u"format", 0, ts::TSPacketFormatEnum);
+    help(u"format", u"name",
+         u"Specify the format of the input file. "
+         u"By default, the format is automatically detected. "
+         u"But the auto-detection may fail in some cases "
+         u"(for instance when the first time-stamp of an M2TS file starts with 0x47). "
+         u"Using this option forces a specific format.");
 
     analyze(argc, argv);
 
+    duck.loadArgs(*this);
+    pager.loadArgs(duck, *this);
+    logger.loadArgs(duck, *this);
+    display.loadArgs(duck, *this);
+
     infile = value(u"");
-    logger.load(*this);
-    display.load(*this);
+    format = enumValue<ts::TSPacketFormat>(u"format", ts::TSPacketFormat::AUTODETECT);
 
     exitOnError();
 }
@@ -84,24 +114,35 @@ Options::Options(int argc, char *argv[]) :
 
 int MainCode(int argc, char *argv[])
 {
-    Options opt (argc, argv);
-    ts::InputRedirector input(opt.infile, opt);
-    ts::TablesDisplay display(opt.display, opt);
-    ts::TablesLogger logger(opt.logger, display, opt);
-    ts::TSPacket pkt;
+    // Decode command line options.
+    Options opt(argc, argv);
+
+    // Redirect display on pager process or stdout only.
+    opt.duck.setOutput(&opt.pager.output(opt), false);
+
+    // Open section logger.
+    if (!opt.logger.open()) {
+        return EXIT_FAILURE;
+    }
+
+    // Open the TS file.
+    ts::TSFile file;
+    if (!file.openRead(opt.infile, 1, 0, opt, opt.format)) {
+        return EXIT_FAILURE;
+    }
 
     // Read all packets in the file and pass them to the logger
-    while (!logger.completed() && pkt.read(std::cin, true, opt)) {
-        logger.feedPacket(pkt);
+    ts::TSPacket pkt;
+    while (!opt.logger.completed() && file.readPackets(&pkt, nullptr, 1, opt) > 0) {
+        opt.logger.feedPacket(pkt);
     }
-    logger.close();
+    file.close(opt);
+    opt.logger.close();
 
     // Report errors
-    if (opt.verbose() && !logger.hasErrors()) {
-        logger.reportDemuxErrors(std::cerr);
+    if (opt.verbose() && !opt.logger.hasErrors()) {
+        opt.logger.reportDemuxErrors(std::cerr);
     }
 
-    return logger.hasErrors() ? EXIT_FAILURE : EXIT_SUCCESS;
+    return opt.logger.hasErrors() ? EXIT_FAILURE : EXIT_SUCCESS;
 }
-
-TS_MAIN(MainCode)

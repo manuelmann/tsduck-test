@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,10 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsCASSelectionArgs.h"
 #include "tsSectionDemux.h"
+#include "tsBinaryTable.h"
 #include "tsPAT.h"
 TSDUCK_SOURCE;
 
@@ -50,12 +50,13 @@ namespace ts {
         private TableHandlerInterface,
         private SectionHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(StuffAnalyzePlugin);
     public:
         // Implementation of plugin API
         StuffAnalyzePlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Analysis context for a PID.
@@ -91,16 +92,10 @@ namespace ts {
         // Invoked by the demux when a complete table is available.
         virtual void handleTable(SectionDemux&, const BinaryTable&) override;
         virtual void handleSection(SectionDemux&, const Section&) override;
-
-        // Inaccessible operations
-        StuffAnalyzePlugin() = delete;
-        StuffAnalyzePlugin(const StuffAnalyzePlugin&) = delete;
-        StuffAnalyzePlugin& operator=(const StuffAnalyzePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(stuffanalyze, ts::StuffAnalyzePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"stuffanalyze", ts::StuffAnalyzePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -116,8 +111,8 @@ ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
     _output(nullptr),
     _cas_args(),
     _analyze_pids(),
-    _analyze_demux(nullptr, this),  // this one intercepts all sections for stuffing analysis
-    _psi_demux(this, nullptr),      // this one is used for PSI parsing
+    _analyze_demux(duck, nullptr, this),  // this one intercepts all sections for stuffing analysis
+    _psi_demux(duck, this, nullptr),      // this one is used for PSI parsing
     _total(),
     _pid_contexts()
 {
@@ -135,7 +130,7 @@ ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
          u"Analyze all tables from these PID's. Several -p or --pid options may be specified.");
 
     // CAS filtering options.
-    _cas_args.defineOptions(*this);
+    _cas_args.defineArgs(*this);
 }
 
 
@@ -146,7 +141,7 @@ ts::StuffAnalyzePlugin::StuffAnalyzePlugin(TSP* tsp_) :
 bool ts::StuffAnalyzePlugin::start()
 {
     // Get command line arguments
-    _cas_args.load(*this);
+    _cas_args.loadArgs(duck, *this);
     _output_name = value(u"output-file");
     getIntValues(_analyze_pids, u"pid");
 
@@ -248,7 +243,7 @@ void ts::StuffAnalyzePlugin::handleTable(SectionDemux& demux, const BinaryTable&
 
         case TID_PAT: {
             // Add all PMT PID's to PSI demux.
-            PAT pat(table);
+            PAT pat(duck, table);
             if (pat.isValid() && table.sourcePID() == PID_PAT) {
                 for (PAT::ServiceMap::const_iterator it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
                     _psi_demux.addPID(it->second);
@@ -259,7 +254,7 @@ void ts::StuffAnalyzePlugin::handleTable(SectionDemux& demux, const BinaryTable&
 
         case TID_CAT: {
             // Analyze stuffing on all required EMM PID's.
-            CAT cat(table);
+            CAT cat(duck, table);
             if (cat.isValid() && table.sourcePID() == PID_CAT) {
                 PIDSet pids;
                 _cas_args.addMatchingPIDs(pids, cat, *tsp);
@@ -271,7 +266,7 @@ void ts::StuffAnalyzePlugin::handleTable(SectionDemux& demux, const BinaryTable&
 
         case TID_PMT: {
             // Analyze stuffing on all required EMM PID's.
-            PMT pmt(table);
+            PMT pmt(duck, table);
             if (pmt.isValid()) {
                 PIDSet pids;
                 _cas_args.addMatchingPIDs(pids, pmt, *tsp);
@@ -325,7 +320,7 @@ void ts::StuffAnalyzePlugin::handleSection(SectionDemux& demux, const Section& s
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::StuffAnalyzePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::StuffAnalyzePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     _psi_demux.feedPacket(pkt);
     _analyze_demux.feedPacket(pkt);

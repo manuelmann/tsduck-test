@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsSpliceInformationTable.h"
 #include "tsServiceDiscovery.h"
@@ -56,13 +55,13 @@ namespace {
     // Default minimum file stability delay.
     const ts::MilliSecond DEFAULT_MIN_STABLE_DELAY = 500;
 
-    // Default start delay for non-immediate splice_insert() commands.
+    // Default start delay for non-immediate splice_insert() and time_signal() commands.
     const ts::MilliSecond DEFAULT_START_DELAY = 2000;
 
-    // Default inject interval for non-immediate splice_insert() commands.
+    // Default inject interval for non-immediate splice_insert() and time_signal() commands.
     const ts::MilliSecond DEFAULT_INJECT_INTERVAL = 800;
 
-    // Default inject count for non-immediate splice_insert() commands.
+    // Default inject count for non-immediate splice_insert() and time_signal() commands.
     const size_t DEFAULT_INJECT_COUNT = 2;
 
     // Default max size for files.
@@ -80,15 +79,16 @@ namespace {
 namespace ts {
     class SpliceInjectPlugin:
         public ProcessorPlugin,
-        private PMTHandlerInterface,
+        private SignalizationHandlerInterface,
         private SectionProviderInterface
     {
+        TS_NOBUILD_NOCOPY(SpliceInjectPlugin);
     public:
         // Implementation of plugin API
         SpliceInjectPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // The plugin contains two internal threads in addition to the packet processing thread.
@@ -98,8 +98,9 @@ namespace ts {
         // Splice command object as stored internally
         // ------------------------------------------
 
-        class SpliceCommand
+        class SpliceCommand : public StringifyInterface
         {
+            TS_NOBUILD_NOCOPY(SpliceCommand);
         public:
             SpliceCommand(SpliceInjectPlugin* plugin, const SectionPtr& sec);
 
@@ -113,16 +114,11 @@ namespace ts {
             // A comparison function to sort commands in the queues.
             bool operator<(const SpliceCommand& other) const;
 
-            // A debug string.
-            UString toString() const;
+            // Implementation of StringifyInterface
+            virtual UString toString() const override;
 
         private:
             SpliceInjectPlugin* const _plugin;
-
-            // Inaccessible operations.
-            SpliceCommand() = delete;
-            SpliceCommand(const SpliceCommand&) = delete;
-            SpliceCommand& operator=(const SpliceCommand&) = delete;
         };
 
         // Splice commands are passed from the server threads to the plugin thread using a message queue.
@@ -139,6 +135,7 @@ namespace ts {
 
         class FileListener : public Thread, private PollFilesListener
         {
+            TS_NOBUILD_NOCOPY(FileListener);
         public:
             FileListener(SpliceInjectPlugin* plugin);
             void stop();
@@ -155,11 +152,6 @@ namespace ts {
             // Implementation of PollFilesListener.
             virtual bool handlePolledFiles(const PolledFileList& files) override;
             virtual bool updatePollFiles(UString& wildcard, MilliSecond& poll_interval, MilliSecond& min_stable_delay) override;
-
-            // Inaccessible operations.
-            FileListener() = delete;
-            FileListener(const FileListener&) = delete;
-            FileListener& operator=(const FileListener&) = delete;
         };
 
         // -------------------
@@ -168,6 +160,7 @@ namespace ts {
 
         class UDPListener : public Thread
         {
+            TS_NOBUILD_NOCOPY(UDPListener);
         public:
             UDPListener(SpliceInjectPlugin* plugin);
             bool open();
@@ -181,11 +174,6 @@ namespace ts {
 
             // Implementation of Thread.
             virtual void main() override;
-
-            // Inaccessible operations.
-            UDPListener() = delete;
-            UDPListener(const UDPListener&) = delete;
-            UDPListener& operator=(const UDPListener&) = delete;
         };
 
         // -------------------
@@ -223,8 +211,8 @@ namespace ts {
         Mutex         _wfb_mutex;           // Mutex waiting for _wfb_received.
         Condition     _wfb_condition;       // Condition waiting for _wfb_received.
 
-        // Implementation of PMTHandlerInterface.
-        virtual void handlePMT(const PMT&) override;
+        // Implementation of SignalizationHandlerInterface.
+        virtual void handlePMT(const PMT&, PID) override;
 
         // Implementation of SectionProviderInterface.
         virtual void provideSection(SectionCounter counter, SectionPtr& section) override;
@@ -232,16 +220,10 @@ namespace ts {
 
         // Process a section file or message. Invoked from listener threads.
         void processSectionMessage(const uint8_t*, size_t);
-
-        // Inaccessible operations
-        SpliceInjectPlugin() = delete;
-        SpliceInjectPlugin(const SpliceInjectPlugin&) = delete;
-        SpliceInjectPlugin& operator=(const SpliceInjectPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(spliceinject, ts::SpliceInjectPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"spliceinject", ts::SpliceInjectPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -265,20 +247,23 @@ ts::SpliceInjectPlugin::SpliceInjectPlugin(TSP* tsp_) :
     _min_stable_delay(0),
     _max_file_size(0),
     _queue_size(0),
-    _service(this, *tsp_),
+    _service(duck, this),
     _inject_pid(PID_NULL),
     _pcr_pid(PID_NULL),
     _pts_pid(PID_NULL),
     _file_listener(this),
     _udp_listener(this),
     _queue(),
-    _packetizer(PID_NULL, this),
+    _packetizer(duck, PID_NULL, this),
     _last_pts(INVALID_PTS),
     _wait_first_batch(false),
     _wfb_received(false),
     _wfb_mutex(),
     _wfb_condition()
 {
+    // We need to define character sets to specify service names.
+    duck.defineArgsForCharset(*this);
+
     setIntro(u"The splice commands are injected as splice information sections, as defined by "
              u"the SCTE 35 standard. All forms of splice information sections can be injected. "
              u"The sections shall be provided by some external equipment, in real time. The "
@@ -312,14 +297,14 @@ ts::SpliceInjectPlugin::SpliceInjectPlugin(TSP* tsp_) :
 
     option(u"inject-count", 0, UNSIGNED);
     help(u"inject-count",
-         u"For non-immediate splice_insert() commands, specifies the number of times "
+         u"For non-immediate splice_insert() and time_signal() commands, specifies the number of times "
          u"the same splice information section is injected. The default is " +
          UString::Decimal(DEFAULT_INJECT_COUNT) + u". "
          u"Other splice commands are injected once only.");
 
     option(u"inject-interval", 0, UNSIGNED);
     help(u"inject-interval",
-         u"For non-immediate splice_insert() commands, specifies the interval in "
+         u"For non-immediate splice_insert() and time_signal() commands, specifies the interval in "
          u"milliseconds between two insertions of the same splice information "
          u"section. The default is " + UString::Decimal(DEFAULT_INJECT_INTERVAL) + u" ms.");
 
@@ -410,6 +395,7 @@ ts::SpliceInjectPlugin::SpliceInjectPlugin(TSP* tsp_) :
 bool ts::SpliceInjectPlugin::start()
 {
     // Decode command line options.
+    duck.loadArgs(*this);
     _files = value(u"files");
     const UString udpName(value(u"udp"));
     _service.set(value(u"service"));
@@ -509,7 +495,7 @@ bool ts::SpliceInjectPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::SpliceInjectPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::SpliceInjectPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     const PID pid = pkt.getPID();
 
@@ -551,10 +537,10 @@ ts::ProcessorPlugin::Status ts::SpliceInjectPlugin::processPacket(TSPacket& pkt,
 
 //----------------------------------------------------------------------------
 // Invoked when the PMT of the service is found.
-// Implementation of PMTHandlerInterface.
+// Implementation of SignalizationHandlerInterface.
 //----------------------------------------------------------------------------
 
-void ts::SpliceInjectPlugin::handlePMT(const PMT& pmt)
+void ts::SpliceInjectPlugin::handlePMT(const PMT& pmt, PID)
 {
     // Get the PID with PCR's.
     if (_pcr_pid == PID_NULL) {
@@ -611,7 +597,7 @@ void ts::SpliceInjectPlugin::provideSection(SectionCounter counter, SectionPtr& 
     for (;;) {
 
         // Get next splice command from the queue.
-        const CommandPtr cmd(_queue.peek());
+        CommandPtr cmd(_queue.peek());
         if (cmd.isNull()) {
             // No splice command available, nothing to do.
             break;
@@ -625,7 +611,7 @@ void ts::SpliceInjectPlugin::provideSection(SectionCounter counter, SectionPtr& 
             const bool dequeued = _queue.dequeue(cmd2, 0);
             assert(dequeued);
             assert(cmd2 == cmd);
-            tsp->verbose(u"dropping %s, obsolete, current PTS: 0x%09X", {cmd2->toString(), _last_pts});
+            tsp->verbose(u"dropping %s, obsolete, current PTS: 0x%09X", {*cmd2, _last_pts});
         }
         else {
             // Give up if the command is not immediate and not yet ready to start.
@@ -641,7 +627,7 @@ void ts::SpliceInjectPlugin::provideSection(SectionCounter counter, SectionPtr& 
 
             // Now we have a section to send.
             section = cmd->section;
-            tsp->verbose(u"injecting %s, current PTS: 0x%09X", {cmd->toString(), _last_pts});
+            tsp->verbose(u"injecting %s, current PTS: 0x%09X", {*cmd, _last_pts});
 
             // If the command must be repeated, compute next PTS and requeue.
             if (cmd->count > 1) {
@@ -649,8 +635,8 @@ void ts::SpliceInjectPlugin::provideSection(SectionCounter counter, SectionPtr& 
                 cmd->next_pts = (cmd->next_pts + cmd->interval) & PTS_DTS_MASK;
                 if (SequencedPTS(cmd->next_pts, cmd->last_pts)) {
                     // The next PTS is still in range, requeue at the next position.
+                    tsp->verbose(u"requeueing %s", {*cmd});
                     _queue.forceEnqueue(cmd);
-                    tsp->verbose(u"requeueing %s", {cmd->toString()});
                 }
             }
             break;
@@ -720,7 +706,7 @@ void ts::SpliceInjectPlugin::processSectionMessage(const uint8_t* addr, size_t s
     tsp->debug(u"parsing section:\n%s", {UString::Dump(addr, size, UString::HEXA | UString::ASCII, 4)});
 
     // Analyze the message as a binary or XML section file.
-    SectionFile secFile;
+    SectionFile secFile(duck);
     if (!secFile.load(strm, *tsp, type)) {
         // Error loading sections, error message already reported.
         return;
@@ -732,18 +718,18 @@ void ts::SpliceInjectPlugin::processSectionMessage(const uint8_t* addr, size_t s
         SectionPtr sec(*it);
         if (!sec.isNull()) {
             if (sec->tableId() != TID_SCTE35_SIT) {
-                tsp->error(u"unexpected section, %s, ignored", {names::TID(sec->tableId(), CAS_OTHER, names::VALUE)});
+                tsp->error(u"unexpected section, %s, ignored", {names::TID(duck, sec->tableId(), CASID_NULL, names::VALUE)});
             }
             else {
                 CommandPtr cmd(new SpliceCommand(this, sec));
                 if (cmd.isNull() || !cmd->sit.isValid()) {
                     tsp->error(u"received invalid splice information section, ignored");
                 }
-                else if (!_queue.enqueue(cmd, 0)) {
-                    tsp->warning(u"queue overflow, dropped one section");
-                }
                 else {
-                    tsp->verbose(u"enqueued %s", {cmd->toString()});
+                    tsp->verbose(u"enqueuing %s", {*cmd});
+                    if (!_queue.enqueue(cmd, 0)) {
+                        tsp->warning(u"queue overflow, dropped one section");
+                    }
                 }
             }
         }
@@ -780,29 +766,37 @@ ts::SpliceInjectPlugin::SpliceCommand::SpliceCommand(SpliceInjectPlugin* plugin,
         // Try to interpret the section as a SIT.
         BinaryTable table;
         table.addSection(section, false, false);
-        sit.deserialize(table);
+        sit.deserialize(_plugin->duck, table);
     }
 
     // The initial values for the member fields are set for one immediate injection.
-    // This must be changed for non-immediate splice insert commands.
-    if (sit.isValid() && sit.splice_command_type == SPLICE_INSERT && !sit.splice_insert.canceled && !sit.splice_insert.immediate) {
+    // This must be changed for non-immediate splice_insert() and time_signal() commands.
+    if (sit.isValid() &&
+        ((sit.splice_command_type == SPLICE_TIME_SIGNAL && sit.time_signal.set()) ||
+         (sit.splice_command_type == SPLICE_INSERT && !sit.splice_insert.canceled && !sit.splice_insert.immediate)))
+    {
         // Compute the splice event PTS value. This will be the last time for
         // the splice command injection since the event is obsolete afterward.
-        if (sit.splice_insert.program_splice) {
-            // Common PTS value, program-wide.
-            if (sit.splice_insert.program_pts.set()) {
-                last_pts = sit.splice_insert.program_pts.value();
+        if (sit.splice_command_type == SPLICE_INSERT) {
+            if (sit.splice_insert.program_splice) {
+                // Common PTS value, program-wide.
+                if (sit.splice_insert.program_pts.set()) {
+                    last_pts = sit.splice_insert.program_pts.value();
+                }
             }
-        }
-        else {
-            // Compute the earliest PTS in all components.
-            for (auto it = sit.splice_insert.components_pts.begin(); it != sit.splice_insert.components_pts.end(); ++it) {
-                if (it->second.set()) {
-                    if (last_pts == INVALID_PTS || SequencedPTS(it->second.value(), last_pts)) {
-                        last_pts = it->second.value();
+            else {
+                // Compute the earliest PTS in all components.
+                for (auto it = sit.splice_insert.components_pts.begin(); it != sit.splice_insert.components_pts.end(); ++it) {
+                    if (it->second.set()) {
+                        if (last_pts == INVALID_PTS || SequencedPTS(it->second.value(), last_pts)) {
+                            last_pts = it->second.value();
+                        }
                     }
                 }
             }
+        }
+        else if (sit.splice_command_type == SPLICE_TIME_SIGNAL) {
+            last_pts = sit.time_signal.value();
         }
         // If we could not find the event PTS, keep one single immediate injection.
         // Otherwise, compute initial PTS and injection count.
@@ -858,7 +852,7 @@ ts::UString ts::SpliceInjectPlugin::SpliceCommand::toString() const
     }
     else {
         // Command name.
-        UString name(DVBNameFromSection(u"SpliceCommandType", sit.splice_command_type));
+        UString name(NameFromSection(u"SpliceCommandType", sit.splice_command_type));
         if (sit.splice_command_type == SPLICE_INSERT) {
             name.append(sit.splice_insert.splice_out ? u" out" : u" in");
         }

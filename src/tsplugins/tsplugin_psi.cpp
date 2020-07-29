@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPSILogger.h"
 TSDUCK_SOURCE;
@@ -45,28 +44,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class PSIPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(PSIPlugin);
     public:
         // Implementation of plugin API
         PSIPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        TablesDisplayArgs _display_options;
-        PSILoggerArgs     _logger_options;
-        TablesDisplay     _display;
-        PSILoggerPtr      _logger;
-
-        // Inaccessible operations
-        PSIPlugin() = delete;
-        PSIPlugin(const PSIPlugin&) = delete;
-        PSIPlugin& operator=(const PSIPlugin&) = delete;
+        TablesDisplay _display;
+        PSILogger     _logger;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(psi, ts::PSIPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"psi", ts::PSIPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -75,40 +68,36 @@ TSPLUGIN_DECLARE_PROCESSOR(psi, ts::PSIPlugin)
 
 ts::PSIPlugin::PSIPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Extract PSI Information", u"[options]"),
-    _display_options(),
-    _logger_options(),
-    _display(_display_options, *tsp),
-    _logger()
+    _display(duck),
+    _logger(_display)
 {
-    _logger_options.defineOptions(*this);
-    _display_options.defineOptions(*this);
+    duck.defineArgsForCAS(*this);
+    duck.defineArgsForPDS(*this);
+    duck.defineArgsForStandards(*this);
+    duck.defineArgsForCharset(*this);
+    _logger.defineArgs(*this);
+    _display.defineArgs(*this);
 }
 
 
 //----------------------------------------------------------------------------
-// Start method
+// Start / stop methods
 //----------------------------------------------------------------------------
+
+bool ts::PSIPlugin::getOptions()
+{
+    return duck.loadArgs(*this) && _logger.loadArgs(duck, *this) && _display.loadArgs(duck, *this);
+}
+
 
 bool ts::PSIPlugin::start()
 {
-    // Decode command line options.
-    if (!_logger_options.load(*this) || !_display_options.load(*this)) {
-        return false;
-    }
-
-    // Create the logger.
-    _logger = new PSILogger(_logger_options, _display, *tsp);
-    return !_logger->hasErrors();
+    return _logger.open();
 }
-
-
-//----------------------------------------------------------------------------
-// Stop method
-//----------------------------------------------------------------------------
 
 bool ts::PSIPlugin::stop()
 {
-    _logger.clear();
+    _logger.close();
     return true;
 }
 
@@ -117,8 +106,8 @@ bool ts::PSIPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::PSIPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::PSIPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    _logger->feedPacket(pkt);
-    return _logger->completed() ? TSP_END : TSP_OK;
+    _logger.feedPacket(pkt);
+    return _logger.completed() ? TSP_END : TSP_OK;
 }

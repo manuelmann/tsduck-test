@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,12 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
-#include "tsCOM.h"
+#include "tsDuckContext.h"
 #include "tsTuner.h"
 #include "tsTunerArgs.h"
 #include "tsSysUtils.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 #if defined(TS_WINDOWS)
     #include "tsDirectShowTest.h"
@@ -47,28 +48,39 @@ TSDUCK_SOURCE;
 //  Command line options
 //----------------------------------------------------------------------------
 
-struct Options: public ts::Args
-{
-    Options(int argc, char *argv[]);
+namespace {
+    class Options: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(Options);
+    public:
+        Options(int argc, char *argv[]);
 
 #if defined(TS_WINDOWS)
-    ts::DirectShowTest::TestType test_type;  // DirectShow test (Windows only).
+        ts::DirectShowTest::TestType test_type;  // DirectShow test (Windows only).
 #endif
-
-    ts::TunerArgs tuner;  // Name of device to list (unspecified means all).
-};
+        ts::DuckContext duck;
+        ts::TunerArgs   tuner_args;  // Name of device to list (unspecified means all).
+    };
+}
 
 Options::Options(int argc, char *argv[]) :
     ts::Args(u"List DVB tuner devices", u"[options]"),
 #if defined(TS_WINDOWS)
     test_type(ts::DirectShowTest::NONE),
 #endif
-    tuner(true, true)
+    duck(this),
+    tuner_args(true, true)
 {
+    // Common tuner options.
+    tuner_args.defineArgs(*this);
+
 #if defined(TS_WINDOWS)
 
     option(u"enumerate-devices", 'e');
     help(u"enumerate-devices", u"Legacy option, equivalent to --test enumerate-devices.");
+
+    option(u"list-devices", 'l');
+    help(u"list-devices", u"Get a list of all tuner and receiver devices, equivalent to --test list-devices.");
 
     option(u"test", 't', ts::DirectShowTest::TestNames);
     help(u"test", u"name",
@@ -77,16 +89,21 @@ Options::Options(int argc, char *argv[]) :
 
 #endif
 
-    // Add common tuner options.
-    tuner.defineOptions(*this);
-
     // Analyze command line options.
     analyze(argc, argv);
-    tuner.load(*this);
+    tuner_args.loadArgs(duck, *this);
 
 #if defined(TS_WINDOWS)
     // Test options on Windows. The legacy option "--enumerate-devices" means "--test enumerate-devices".
-    test_type = enumValue(u"test", present(u"enumerate-devices") ? ts::DirectShowTest::ENUMERATE_DEVICES : ts::DirectShowTest::NONE);
+    if (present(u"list-devices")) {
+        test_type = ts::DirectShowTest::LIST_DEVICES;
+    }
+    else if (present(u"enumerate-devices")) {
+        test_type = ts::DirectShowTest::ENUMERATE_DEVICES;
+    }
+    else {
+        test_type = enumValue(u"test", ts::DirectShowTest::NONE);
+    }
 #endif
 
     exitOnError();
@@ -99,98 +116,49 @@ Options::Options(int argc, char *argv[]) :
 //----------------------------------------------------------------------------
 
 namespace {
-    void ListTuner(ts::Tuner& tuner, int tuner_index, Options& opt)
+    void ListTuner(ts::DuckContext& duck, ts::Tuner& tuner, int tuner_index, Options& opt)
     {
         // If not opened, nothing to display.
         if (!tuner.isOpen()) {
             return;
         }
 
-        // Get tuner information.
-        const ts::UString info(tuner.deviceInfo());
-        bool something = !info.empty();
-        const ts::DeliverySystemSet systems(tuner.deliverySystems());
-
-        // Display name. On Windows, since names are weird, always display
-        // the adapter number and use quotes around tuner name.
+        // On Windows, since names are weird, always use quotes around tuner name.
+        const char* quote = "";
 #if defined(TS_WINDOWS)
+        quote = "\"";
+#endif
+
+        // Display name.
         if (tuner_index >= 0) {
             std::cout << tuner_index << ": ";
         }
-        std::cout << '"';
-#endif
-        std::cout << tuner.deviceName();
-#if defined(TS_WINDOWS)
-        std::cout << '"';
-#endif
+        std::cout << quote << tuner.deviceName() << quote;
 
         // Display tuner information.
+        const ts::UString info(tuner.deviceInfo());
         std::cout << " (";
-        if (something) {
-            std::cout << info;
+        if (!info.empty()) {
+            std::cout << "\"" << info << "\", ";
         }
-        for (size_t ds = 0; ds < systems.size(); ++ds) {
-            if (systems.test(ds)) {
-                if (something) {
-                    std::cout << ", ";
-                }
-                std::cout << ts::DeliverySystemEnum.name(int(ds));
-                something = true;
-            }
-        }
-        std::cout << ")" << std::endl;
+        std::cout << tuner.deliverySystems().toString() << ")" << std::endl;
 
         // Display verbose information
         if (opt.verbose()) {
+
+            // Display device path.
+            const ts::UString path(tuner.devicePath());
+            if (!path.empty()) {
+                std::cout << (tuner_index >= 0 ? "   " : "") << "Device: " << path << std::endl;
+            }
+
+            // Display system-specific status (very verbose).
             std::cout << std::endl;
             tuner.displayStatus(std::cout, u"  ", opt);
             std::cout << std::endl;
         }
     }
 }
-
-
-//----------------------------------------------------------------------------
-//  Main code. Isolated from main() to ensure that destructors are invoked
-//  before COM uninitialize.
-//----------------------------------------------------------------------------
-
-namespace {
-    void ListMain(Options& opt)
-    {
-        // List DVB tuner devices
-        if (!opt.tuner.device_name.empty()) {
-            // One device name specified.
-            ts::Tuner tuner(opt.tuner.device_name, true, opt);
-            ListTuner(tuner, -1, opt);
-        }
-        else {
-            // List all tuners.
-            ts::TunerPtrVector tuners;
-            if (!ts::Tuner::GetAllTuners(tuners, opt)) {
-                return;
-            }
-            else if (tuners.empty()) {
-                opt.error(u"no DVB device found");
-            }
-            else {
-                if (opt.verbose()) {
-                    std::cout << std::endl;
-                }
-                for (size_t i = 0; i < tuners.size(); ++i) {
-                    ListTuner(*tuners[i], int(i), opt);
-                }
-            }
-        }
-
-#if defined (TS_WINDOWS)
-        // Specific DirectShow tests on Windows.
-        ts::DirectShowTest ds(std::cout, opt);
-        ds.runTest(opt.test_type);
-#endif
-    }
-}
-
 
 //----------------------------------------------------------------------------
 //  Program entry point
@@ -199,14 +167,42 @@ namespace {
 int MainCode(int argc, char *argv[])
 {
     Options opt(argc, argv);
-    ts::COM com(opt);
 
-    if (com.isInitialized()) {
-        ListMain(opt);
+#if defined(TS_WINDOWS)
+    // Specific DirectShow tests on Windows.
+    if (opt.test_type != ts::DirectShowTest::NONE) {
+        ts::DirectShowTest ds(std::cout, opt);
+        ds.runTest(opt.test_type);
+        return EXIT_SUCCESS;
+    }
+#endif
+
+    // List DVB tuner devices
+    if (!opt.tuner_args.device_name.empty()) {
+        // One device name specified.
+        ts::Tuner tuner(opt.duck);
+        if (opt.tuner_args.configureTuner(tuner, opt)) {
+            ListTuner(opt.duck, tuner, -1, opt);
+        }
+    }
+    else {
+        // List all tuners.
+        ts::TunerPtrVector tuners;
+        if (!ts::Tuner::GetAllTuners(opt.duck, tuners, opt)) {
+            return EXIT_FAILURE;
+        }
+        else if (tuners.empty()) {
+            opt.error(u"no DVB device found");
+        }
+        else {
+            if (opt.verbose()) {
+                std::cout << std::endl;
+            }
+            for (size_t i = 0; i < tuners.size(); ++i) {
+                ListTuner(opt.duck, *tuners[i], int(i), opt);
+            }
+        }
     }
 
-    opt.exitOnError();
-    return EXIT_SUCCESS;
+    return opt.valid() ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-TS_MAIN(MainCode)

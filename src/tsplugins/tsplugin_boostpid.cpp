@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 TSDUCK_SOURCE;
 
@@ -44,29 +43,28 @@ TSDUCK_SOURCE;
 namespace ts {
     class BoostPIDPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(BoostPIDPlugin);
     public:
         // Implementation of plugin API
         BoostPIDPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
+        // Command line options:
         uint16_t _pid;         // Target PID
         int      _opt_addpkt;  // addpkt in addpkt/inpkt parameter
         int      _opt_inpkt;   // inpkt in addpkt/inpkt parameter
-        uint8_t  _next_cc;     // Current continuity counter in PID
+
+        // Working data:
+        uint8_t  _last_cc;     // Last continuity counter in PID
         int      _in_count;    // Input packet countdown for next insertion
         int      _add_count;   // Current number of packets to add
-
-        // Inaccessible operations
-        BoostPIDPlugin() = delete;
-        BoostPIDPlugin(const BoostPIDPlugin&) = delete;
-        BoostPIDPlugin& operator=(const BoostPIDPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(boostpid, ts::BoostPIDPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"boostpid", ts::BoostPIDPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -78,7 +76,7 @@ ts::BoostPIDPlugin::BoostPIDPlugin(TSP* tsp_) :
     _pid(PID_NULL),
     _opt_addpkt(0),
     _opt_inpkt(0),
-    _next_cc(0),
+    _last_cc(0),
     _in_count(0),
     _add_count(0)
 {
@@ -92,12 +90,11 @@ ts::BoostPIDPlugin::BoostPIDPlugin(TSP* tsp_) :
 
 
 //----------------------------------------------------------------------------
-// Start method
+// Get options method
 //----------------------------------------------------------------------------
 
-bool ts::BoostPIDPlugin::start()
+bool ts::BoostPIDPlugin::getOptions()
 {
-    // Get and verify command line arguments
     if ((_pid = intValue<uint16_t>(u"", 0xFFFF, 0)) >= PID_MAX) {
         tsp->error(u"invalid 'pid' parameter");
         return false;
@@ -110,12 +107,20 @@ bool ts::BoostPIDPlugin::start()
         tsp->error(u"invalid 'inpkt' parameter");
         return false;
     }
-    tsp->verbose(u"adding %d packets every %d packets on PID %d (0x%X)", {_opt_addpkt, _opt_inpkt, _pid, _pid});
+    return true;
+}
 
-    _next_cc = 0;
+
+//----------------------------------------------------------------------------
+// Start method
+//----------------------------------------------------------------------------
+
+bool ts::BoostPIDPlugin::start()
+{
+    tsp->verbose(u"adding %d packets every %d packets on PID %d (0x%X)", {_opt_addpkt, _opt_inpkt, _pid, _pid});
+    _last_cc = 0;
     _in_count = 0;
     _add_count = 0;
-
     return true;
 }
 
@@ -124,14 +129,13 @@ bool ts::BoostPIDPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::BoostPIDPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::BoostPIDPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     const PID pid = pkt.getPID();
 
     if (pid == _pid) {
 
         // The packet belongs to the target PID. Update counters.
-
         if (_in_count == 0) {
             // It is time to add more packets
             if (_add_count > 0) {
@@ -144,40 +148,24 @@ ts::ProcessorPlugin::Status ts::BoostPIDPlugin::processPacket(TSPacket& pkt, boo
 
         assert (_in_count > 0);
         _in_count--;
+        _last_cc = pkt.getCC();
     }
-    else if (pid == PID_NULL) {
+    else if (pid == PID_NULL && _add_count > 0) {
 
-        // This is a stuffing packet. If we don't need any, pass it.
-
-        if (_add_count == 0) {
-            return TSP_OK;
-        }
-
-        // Insert an empty packet for the target PID:
+        // Insert an empty packet for the target PID, replacing one stuffing packet.
         // No payload, 184-byte adaptation field
-
         assert(_add_count > 0);
         _add_count--;
 
         ::memset(pkt.b, 0xFF, sizeof(pkt.b));
 
-        pkt.b[0] = 0x47;  // sync byte
+        pkt.b[0] = 0x47;       // sync byte
         PutUInt16(pkt.b + 1, _pid); // PID, no PUSI, no error, no priority
-        pkt.b[3] = 0x20;  // adaptation field, no payload
-        pkt.b[4] = 183;   // adaptation field length
-        pkt.b[5] = 0x00;  // nothing in adaptation field
+        pkt.b[3] = 0x20;       // adaptation field, no payload
+        pkt.b[4] = 183;        // adaptation field length
+        pkt.b[5] = 0x00;       // nothing in adaptation field
+        pkt.setCC(_last_cc);   // No CC increment without payload -> use last CC
     }
-    else {
-
-        // Neither stuffing nor target PID -> pass it
-
-        return TSP_OK;
-    }
-
-    // Update the continuity counter before returning the packet.
-
-    pkt.setCC(_next_cc);
-    _next_cc = (_next_cc + 1) & 0x0F;
 
     return TSP_OK;
 }

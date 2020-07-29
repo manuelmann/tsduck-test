@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -46,30 +46,26 @@ TSDUCK_SOURCE;
 namespace ts {
     class CATPlugin: public AbstractTablePlugin
     {
+        TS_NOBUILD_NOCOPY(CATPlugin);
     public:
         // Implementation of plugin API
         CATPlugin(TSP*);
-        virtual bool start() override;
-
-    private:
-        bool                  _cleanup_priv_desc; // Remove private desc without preceding PDS desc
-        std::vector<uint16_t> _remove_casid;      // Set of CAS id to remove
-        std::vector<uint16_t> _remove_pid;        // Set of EMM PID to remove
-        DescriptorList        _add_descs;         // List of descriptors to add
+        virtual bool getOptions() override;
 
         // Implementation of AbstractTablePlugin.
         virtual void createNewTable(BinaryTable& table) override;
         virtual void modifyTable(BinaryTable& table, bool& is_target, bool& reinsert) override;
 
-        // Inaccessible operations
-        CATPlugin() = delete;
-        CATPlugin(const CATPlugin&) = delete;
-        CATPlugin& operator=(const CATPlugin&) = delete;
+    private:
+        // Command line options:
+        bool                  _cleanup_priv_desc; // Remove private desc without preceding PDS desc
+        std::vector<uint16_t> _remove_casid;      // Set of CAS id to remove
+        std::vector<uint16_t> _remove_pid;        // Set of EMM PID to remove
+        DescriptorList        _add_descs;         // List of descriptors to add
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(cat, ts::CATPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"cat", ts::CATPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -107,10 +103,10 @@ ts::CATPlugin::CATPlugin (TSP* tsp_) :
 
 
 //----------------------------------------------------------------------------
-// Start method
+// Get options method
 //----------------------------------------------------------------------------
 
-bool ts::CATPlugin::start()
+bool ts::CATPlugin::getOptions()
 {
     // Get option values
     _cleanup_priv_desc = present(u"cleanup-private-descriptors");
@@ -121,12 +117,12 @@ bool ts::CATPlugin::start()
     UStringVector cadescs;
     getValues(cadescs, u"add-ca-descriptor");
     _add_descs.clear();
-    if (!CADescriptor::AddFromCommandLine(_add_descs, cadescs, *tsp)) {
+    if (!CADescriptor::AddFromCommandLine(duck, _add_descs, cadescs)) {
         return false;
     }
 
     // Start superclass.
-    return AbstractTablePlugin::start();
+    return AbstractTablePlugin::getOptions();
 }
 
 
@@ -137,7 +133,7 @@ bool ts::CATPlugin::start()
 void ts::CATPlugin::createNewTable(BinaryTable& table)
 {
     CAT cat;
-    cat.serialize(table);
+    cat.serialize(duck, table);
 }
 
 
@@ -155,7 +151,7 @@ void ts::CATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Process the CAT.
-    CAT cat(table);
+    CAT cat(duck, table);
     if (!cat.isValid()) {
         tsp->warning(u"found invalid CAT");
         reinsert = false;
@@ -165,7 +161,7 @@ void ts::CATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     // Remove descriptors
     for (size_t index = cat.descs.search(DID_CA); index < cat.descs.count(); index = cat.descs.search(DID_CA, index)) {
         bool remove_it = false;
-        const CADescriptor desc(*(cat.descs[index]));
+        const CADescriptor desc(duck, *(cat.descs[index]));
         if (desc.isValid()) {
             for (size_t i = 0; !remove_it && i < _remove_casid.size(); ++i) {
                 remove_it = desc.cas_id == _remove_casid[i];
@@ -191,5 +187,5 @@ void ts::CATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     cat.descs.add(_add_descs);
 
     // Reserialize modified CAT.
-    cat.serialize(table);
+    cat.serialize(duck, table);
 }

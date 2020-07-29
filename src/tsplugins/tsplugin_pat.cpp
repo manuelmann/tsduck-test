@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -46,6 +46,7 @@ TSDUCK_SOURCE;
 namespace ts {
     class PATPlugin: public AbstractTablePlugin
     {
+        TS_NOBUILD_NOCOPY(PATPlugin);
     public:
         // Implementation of plugin API
         PATPlugin(TSP*);
@@ -62,16 +63,10 @@ namespace ts {
         // Implementation of AbstractTablePlugin.
         virtual void createNewTable(BinaryTable& table) override;
         virtual void modifyTable(BinaryTable& table, bool& is_target, bool& reinsert) override;
-
-        // Inaccessible operations
-        PATPlugin() = delete;
-        PATPlugin(const PATPlugin&) = delete;
-        PATPlugin& operator=(const PATPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(pat, ts::PATPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"pat", ts::PATPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -158,7 +153,7 @@ bool ts::PATPlugin::start()
 void ts::PATPlugin::createNewTable(BinaryTable& table)
 {
     PAT pat;
-    pat.serialize(table);
+    pat.serialize(duck, table);
 }
 
 
@@ -176,7 +171,7 @@ void ts::PATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Process the PAT.
-    PAT pat(table);
+    PAT pat(duck, table);
     if (!pat.isValid()) {
         tsp->warning(u"found invalid PAT");
         reinsert = false;
@@ -203,5 +198,5 @@ void ts::PATPlugin::modifyTable(BinaryTable& table, bool& is_target, bool& reins
     }
 
     // Reserialize modified PAT.
-    pat.serialize(table);
+    pat.serialize(duck, table);
 }

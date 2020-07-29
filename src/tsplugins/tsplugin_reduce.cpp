@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 TSDUCK_SOURCE;
 
@@ -44,27 +43,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class ReducePlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(ReducePlugin);
     public:
         // Implementation of plugin API
         ReducePlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         int _opt_rempkt;  // rempkt parameter
         int _opt_inpkt;   // inpkt parameter
         int _in_count;    // Input packet count (0 to inpkt)
         int _rem_count;   // Current number of packets to remove
-
-        // Inaccessible operations
-        ReducePlugin() = delete;
-        ReducePlugin(const ReducePlugin&) = delete;
-        ReducePlugin& operator=(const ReducePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(reduce, ts::ReducePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"reduce", ts::ReducePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -106,7 +100,7 @@ bool ts::ReducePlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::ReducePlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::ReducePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     assert (_rem_count >= 0);
     assert (_in_count >= 0);

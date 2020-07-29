@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,9 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsTime.h"
-#include "tsMemoryUtils.h"
+#include "tsMemory.h"
 TSDUCK_SOURCE;
 
 
@@ -46,12 +45,14 @@ TSDUCK_SOURCE;
 namespace ts {
     class CountPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(CountPlugin);
     public:
         // Implementation of plugin API
         CountPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // This structure is used at each --interval.
@@ -65,30 +66,27 @@ namespace ts {
             IntervalReport() : start(), counted_packets(0), total_packets(0) {}
         };
 
-        std::ofstream  _outfile;            // User-specified output file
+        // Command  line options:
+        UString        _tag;                // Message tag
         bool           _negate;             // Negate filter (exclude selected packets)
         PIDSet         _pids;               // PID values to filter
         bool           _brief_report;       // Display biref report, values but not comments
         bool           _report_all;         // Report packet index and PID of each packet
         bool           _report_summary;     // Report summary
         bool           _report_total;       // Report total of all PIDs
-        PacketCounter  _current_pkt;        // Current TS packet number
         PacketCounter  _report_interval;    // If non-zero, report time-stamp at this packet interval
+
+        // Working data:
+        std::ofstream  _outfile;            // User-specified output file
         IntervalReport _last_report;        // Last report content
         PacketCounter  _counters[PID_MAX];  // Packet counter per PID
 
         // Report a line
         void report(const UChar* fmt, const std::initializer_list<ArgMixIn> args);
-
-        // Inaccessible operations
-        CountPlugin() = delete;
-        CountPlugin(const CountPlugin&) = delete;
-        CountPlugin& operator=(const CountPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(count, ts::CountPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"count", ts::CountPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -97,15 +95,15 @@ TSPLUGIN_DECLARE_PROCESSOR(count, ts::CountPlugin)
 
 ts::CountPlugin::CountPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Count TS packets per PID", u"[options]"),
-    _outfile(),
+    _tag(),
     _negate(false),
     _pids(),
     _brief_report(false),
     _report_all(false),
     _report_summary(false),
     _report_total(false),
-    _current_pkt(0),
     _report_interval(0),
+    _outfile(),
     _last_report(),
     _counters()
 {
@@ -144,9 +142,40 @@ ts::CountPlugin::CountPlugin(TSP* tsp_) :
          u"unless --all or --total is specified, in which case the final summary is "
          u"reported only if --summary is specified.");
 
+    option(u"tag", 0, STRING);
+    help(u"tag", u"'string'",
+         u"Message tag to be displayed with count report lines. Useful when "
+         u"the plugin is used several times in the same process.");
+
     option(u"total", 't');
     help(u"total",
          u"Display the total packet counts in all PID's.");
+}
+
+
+//----------------------------------------------------------------------------
+// Get options method
+//----------------------------------------------------------------------------
+
+bool ts::CountPlugin::getOptions()
+{
+    _report_all = present(u"all");
+    _report_total = present(u"total");
+    _report_summary = (!_report_all && !_report_total) || present(u"summary");
+    _brief_report = present(u"brief");
+    _negate = present(u"negate");
+    getIntValue(_report_interval, u"interval");
+    getIntValues(_pids, u"pid");
+    _tag = value(u"tag");
+    if (!_tag.empty()) {
+        _tag += u": ";
+    }
+
+    // By default, all PIDs are selected
+    if (!present(u"pid")) {
+        _pids.set();
+    }
+    return true;
 }
 
 
@@ -156,19 +185,6 @@ ts::CountPlugin::CountPlugin(TSP* tsp_) :
 
 bool ts::CountPlugin::start()
 {
-    _report_all = present(u"all");
-    _report_total = present(u"total");
-    _report_summary = (!_report_all && !_report_total) || present(u"summary");
-    _brief_report = present(u"brief");
-    _negate = present(u"negate");
-    getIntValue(_report_interval, u"interval");
-    getIntValues(_pids, u"pid");
-
-    // By default, all PIDs are selected
-    if (!present(u"pid")) {
-        _pids.set();
-    }
-
     // Create output file
     if (present(u"output-file")) {
         const UString name(value(u"output-file"));
@@ -181,7 +197,6 @@ bool ts::CountPlugin::start()
     }
 
     // Reset state
-    _current_pkt = 0;
     TS_ZERO(_counters);
 
     return true;
@@ -202,7 +217,7 @@ bool ts::CountPlugin::stop()
                     report(u"%d %d", {pid, _counters[pid]});
                 }
                 else {
-                    report(u"PID %4d (0x%04X): %10'd packets", {pid, pid, _counters[pid]});
+                    report(u"%sPID %4d (0x%04X): %10'd packets", {_tag, pid, pid, _counters[pid]});
                 }
             }
         }
@@ -216,7 +231,7 @@ bool ts::CountPlugin::stop()
             report(u"%d", {total});
         }
         else {
-            report(u"total: counted %'d packets out of %'d", {total, _current_pkt});
+            report(u"%stotal: counted %'d packets out of %'d", {_tag, total, tsp->pluginPackets()});
         }
     }
 
@@ -230,7 +245,7 @@ bool ts::CountPlugin::stop()
 
 
 //----------------------------------------------------------------------------
-// Report a history line
+// Report a line
 //----------------------------------------------------------------------------
 
 void ts::CountPlugin::report(const UChar* fmt, const std::initializer_list<ArgMixIn> args)
@@ -248,7 +263,7 @@ void ts::CountPlugin::report(const UChar* fmt, const std::initializer_list<ArgMi
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::CountPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::CountPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Check if the packet must be counted
     const PID pid = pkt.getPID();
@@ -259,18 +274,18 @@ ts::ProcessorPlugin::Status ts::CountPlugin::processPacket(TSPacket& pkt, bool& 
 
     // Process reporting intervals.
     if (_report_interval > 0) {
-        if (_current_pkt == 0) {
+        if (tsp->pluginPackets() == 0) {
             // Set initial interval
             _last_report.start = Time::CurrentUTC();
             _last_report.counted_packets = 0;
             _last_report.total_packets = 0;
         }
-        else if (_current_pkt % _report_interval == 0) {
+        else if (tsp->pluginPackets() % _report_interval == 0) {
             // It is time to produce a report.
             // Get current state.
             IntervalReport now;
             now.start = Time::CurrentUTC();
-            now.total_packets = _current_pkt;
+            now.total_packets = tsp->pluginPackets();
             now.counted_packets = 0;
             for (size_t p = 0; p < PID_MAX; p++) {
                 now.counted_packets += _counters[p];
@@ -284,8 +299,8 @@ ts::ProcessorPlugin::Status ts::CountPlugin::processPacket(TSPacket& pkt, bool& 
                 countedBitRate = PacketBitRate(now.counted_packets - _last_report.counted_packets, duration);
                 totalBitRate = PacketBitRate(now.total_packets - _last_report.total_packets, duration);
             }
-            report(u"%s, counted: %'d packets, %'d b/s, total: %'d packets, %'d b/s",
-                   {UString(Time::CurrentLocalTime()), now.counted_packets, countedBitRate, now.total_packets, totalBitRate});
+            report(u"%s%s, counted: %'d packets, %'d b/s, total: %'d packets, %'d b/s",
+                   {_tag, UString(Time::CurrentLocalTime()), now.counted_packets, countedBitRate, now.total_packets, totalBitRate});
 
             // Save current report.
             _last_report = now;
@@ -296,16 +311,14 @@ ts::ProcessorPlugin::Status ts::CountPlugin::processPacket(TSPacket& pkt, bool& 
     if (ok) {
         if (_report_all) {
             if (_brief_report) {
-                report(u"%d %d", {_current_pkt, pid});
+                report(u"%d %d", {tsp->pluginPackets(), pid});
             }
             else {
-                report(u"Packet: %10'd, PID: %4d (0x%04X)", {_current_pkt, pid, pid});
+                report(u"%spacket: %10'd, PID: %4d (0x%04X)", {_tag, tsp->pluginPackets(), pid, pid});
             }
         }
         _counters[pid]++;
     }
 
-    // Count TS packets
-    _current_pkt++;
     return TSP_OK;
 }

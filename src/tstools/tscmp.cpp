@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,13 +32,14 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
-#include "tsMemoryUtils.h"
+#include "tsMemory.h"
 #include "tsTSFileInputBuffered.h"
 #include "tsBinaryTable.h"
 #include "tsSection.h"
 #include "tsPMT.h"
 #include "tsStreamIdentifierDescriptor.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 #define DEFAULT_BUFFERED_PACKETS 10000
 
@@ -47,29 +48,35 @@ TSDUCK_SOURCE;
 //  Command line options
 //----------------------------------------------------------------------------
 
-struct Options: public ts::Args
-{
-    Options(int argc, char *argv[]);
+namespace {
+    class Options: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(Options);
+    public:
+        Options(int argc, char *argv[]);
 
-    ts::UString filename1;
-    ts::UString filename2;
-    uint64_t    byte_offset;
-    size_t      buffered_packets;
-    size_t      threshold_diff;
-    bool        subset;
-    bool        dump;
-    uint32_t    dump_flags;
-    bool        normalized;
-    bool        quiet;
-    bool        payload_only;
-    bool        pcr_ignore;
-    bool        pid_ignore;
-    bool        cc_ignore;
-    bool        continue_all;
-};
+        ts::TSPacketFormat format;
+        ts::UString        filename1;
+        ts::UString        filename2;
+        uint64_t           byte_offset;
+        size_t             buffered_packets;
+        size_t             threshold_diff;
+        bool               subset;
+        bool               dump;
+        uint32_t           dump_flags;
+        bool               normalized;
+        bool               quiet;
+        bool               payload_only;
+        bool               pcr_ignore;
+        bool               pid_ignore;
+        bool               cc_ignore;
+        bool               continue_all;
+    };
+}
 
 Options::Options(int argc, char *argv[]) :
     Args(u"Compare two transport stream files", u"[options] filename-1 filename-2"),
+    format(ts::TSPacketFormat::AUTODETECT),
     filename1(),
     filename2(),
     byte_offset(0),
@@ -105,6 +112,15 @@ Options::Options(int argc, char *argv[]) :
 
     option(u"dump", 'd');
     help(u"dump", u"Dump the content of all differing packets.");
+
+    option(u"format", 'f', ts::TSPacketFormatEnum);
+    help(u"format", u"name",
+         u"Specify the format of the input files. "
+         u"By default, the format is automatically and independently detected for each file. "
+         u"But the auto-detection may fail in some cases "
+         u"(for instance when the first time-stamp of an M2TS file starts with 0x47). "
+         u"Using this option forces a specific format. "
+         u"If a specific format is specified, the two input files must have the same format.");
 
     option(u"normalized", 'n');
     help(u"normalized", u"Report in a normalized output format (useful for automatic analysis).");
@@ -147,6 +163,7 @@ Options::Options(int argc, char *argv[]) :
     getValue(filename1, u"", u"", 0);
     getValue(filename2, u"", u"", 1);
 
+    format = enumValue<ts::TSPacketFormat>(u"format", ts::TSPacketFormat::AUTODETECT);
     buffered_packets = intValue<size_t>(u"buffered-packets", DEFAULT_BUFFERED_PACKETS);
     byte_offset = intValue<uint64_t>(u"byte-offset", intValue<uint64_t>(u"packet-offset", 0) * ts::PKT_SIZE);
     threshold_diff = intValue<size_t>(u"threshold-diff", 0);
@@ -299,8 +316,8 @@ int MainCode(int argc, char *argv[])
     ts::TSFileInputBuffered file2(opt.buffered_packets);
 
     // Open files
-    file1.open(opt.filename1, 1, opt.byte_offset, opt);
-    file2.open(opt.filename2, 1, opt.byte_offset, opt);
+    file1.openRead(opt.filename1, 1, opt.byte_offset, opt, opt.format);
+    file2.openRead(opt.filename2, 1, opt.byte_offset, opt, opt.format);
     opt.exitOnError();
 
     // Display headers
@@ -317,7 +334,7 @@ int MainCode(int argc, char *argv[])
     ts::PacketCounter count1[ts::PID_MAX];
     ts::PacketCounter count2[ts::PID_MAX];
     TS_ZERO(count1);
-    TS_ZERO (count2);
+    TS_ZERO(count2);
 
     // Currently skipped packets in file1 when --subset
     ts::PacketCounter subset_skipped = 0;
@@ -354,22 +371,22 @@ int MainCode(int argc, char *argv[])
             if (read1 != 0) {
                 // File 2 is truncated
                 if (opt.normalized) {
-                    std::cout << "truncated:file=2:packet=" << file2.getPacketCount()
+                    std::cout << "truncated:file=2:packet=" << file2.readPacketsCount()
                               << ":filename=" << file2.getFileName() << ":" << std::endl;
                 }
                 else if (!opt.quiet) {
-                    std::cout << "* Packet " << ts::UString::Decimal(file2.getPacketCount())
+                    std::cout << "* Packet " << ts::UString::Decimal(file2.readPacketsCount())
                               << ": file " << file2.getFileName() << " is truncated" << std::endl;
                 }
             }
             if (read2 != 0) {
                 // File 1 is truncated
                 if (opt.normalized) {
-                    std::cout << "truncated:file=1:packet=" << file1.getPacketCount()
+                    std::cout << "truncated:file=1:packet=" << file1.readPacketsCount()
                               << ":filename=" << file1.getFileName() << ":" << std::endl;
                 }
                 else if (!opt.quiet) {
-                    std::cout << "* Packet " << ts::UString::Decimal(file1.getPacketCount())
+                    std::cout << "* Packet " << ts::UString::Decimal(file1.readPacketsCount())
                               << ": file " << file1.getFileName() << " is truncated" << std::endl;
                 }
             }
@@ -388,12 +405,12 @@ int MainCode(int argc, char *argv[])
         // Report resynchronization after missing packets
         if (subset_skipped > 0) {
             if (opt.normalized) {
-                std::cout << "skip:packet=" << (file1.getPacketCount() - 1 - subset_skipped)
+                std::cout << "skip:packet=" << (file1.readPacketsCount() - 1 - subset_skipped)
                           << ":skipped=" << ts::UString::Decimal(subset_skipped)
                           << ":" << std::endl;
             }
             else {
-                std::cout << "* Packet " << ts::UString::Decimal(file1.getPacketCount() - 1 - subset_skipped)
+                std::cout << "* Packet " << ts::UString::Decimal(file1.readPacketsCount() - 1 - subset_skipped)
                           << ", missing " << ts::UString::Decimal(subset_skipped)
                           << " packets in " << file2.getFileName() << std::endl;
             }
@@ -406,7 +423,7 @@ int MainCode(int argc, char *argv[])
         if (!comp.equal) {
             diff_count++;
             if (opt.normalized) {
-                std::cout << "diff:packet=" << (file1.getPacketCount() - 1)
+                std::cout << "diff:packet=" << (file1.readPacketsCount() - 1)
                           << (opt.payload_only ? ":payload" : "")
                           << ":offset=" << comp.first_diff
                           << ":endoffset=" << comp.end_diff
@@ -421,7 +438,7 @@ int MainCode(int argc, char *argv[])
                           << ":" << std::endl;
             }
             else if (!opt.quiet) {
-                std::cout << "* Packet " << ts::UString::Decimal(file1.getPacketCount() - 1) << " differ at offset " << comp.first_diff;
+                std::cout << "* Packet " << ts::UString::Decimal(file1.readPacketsCount() - 1) << " differ at offset " << comp.first_diff;
                 if (opt.payload_only) {
                     std::cout << " in payload";
                 }
@@ -459,14 +476,14 @@ int MainCode(int argc, char *argv[])
 
     // Final report
     if (opt.normalized) {
-        std::cout << "total:packets=" << file1.getPacketCount()
+        std::cout << "total:packets=" << file1.readPacketsCount()
                   << ":diff=" << diff_count
                   << ":missing=" << total_subset_skipped
                   << ":holes=" << subset_skipped_chunks
                   << ":" << std::endl;
     }
     else if (opt.verbose()) {
-        std::cout << "* Read " << ts::UString::Decimal(file1.getPacketCount())
+        std::cout << "* Read " << ts::UString::Decimal(file1.readPacketsCount())
                   << " packets, found " << ts::UString::Decimal(diff_count) << " differences";
         if (subset_skipped_chunks > 0) {
             std::cout << ", missing " << ts::UString::Decimal(total_subset_skipped)
@@ -480,5 +497,3 @@ int MainCode(int argc, char *argv[])
     file2.close (opt);
     return diff_count == 0 && opt.valid() ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-TS_MAIN(MainCode)

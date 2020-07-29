@@ -1,7 +1,7 @@
 #-----------------------------------------------------------------------------
 #
 #  TSDuck - The MPEG Transport Stream Toolkit
-#  Copyright (c) 2005-2018, Thierry Lelegard
+#  Copyright (c) 2005-2020, Thierry Lelegard
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -31,10 +31,11 @@
 #
 #  Additional options which can be defined:
 #
-#  - NOTEST  : No unitary test, remove dependency to CppUnit.
+#  - NOTEST  : Do not build unitary tests.
 #  - NODTAPI : No Dektec support, remove dependency to DTAPI.
 #  - NOCURL  : No HTTP support, remove dependency to libcurl.
 #  - NOPCSC  : No smartcard support, remove dependency to pcsc-lite.
+#  - NOSRT   : No SRT support, remove dependency to libsrt.
 #  - NOTELETEXT : No Teletext support, remove teletext handling code.
 #
 #-----------------------------------------------------------------------------
@@ -42,8 +43,8 @@
 
 include Makefile.tsduck
 
-EXTRA_DISTCLEAN   += doxy
-NORECURSE_SUBDIRS += doxy
+EXTRA_DISTCLEAN   += bin
+NORECURSE_SUBDIRS += bin
 
 # Analyze our code only, not downloaded 3rd-party code in dektec.
 CPPCHECK_SOURCES   = src
@@ -71,8 +72,10 @@ test: default
 test-suite: default
 	@if [[ -d ../tsduck-test/.git ]]; then \
 	   cd ../tsduck-test; git pull; ./run-all-tests.sh --dev; \
+	 elif [[ -x ../tsduck-test/run-all-tests.sh ]]; then \
+	   ../tsduck-test/run-all-tests.sh --dev; \
 	 else \
-	   echo >&2 "No git repository in ../tsduck-test"; \
+	   echo >&2 "No test repository in ../tsduck-test"; \
 	 fi
 
 # Download the Dektec DTAPI. Automatically done during a global "make" since

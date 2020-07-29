@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,11 +32,10 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsCyclingPacketizer.h"
 #include "tsFileNameRate.h"
-#include "tsSectionFile.h"
+#include "tsSectionFileArgs.h"
 #include "tsSysUtils.h"
 TSDUCK_SOURCE;
 
@@ -52,15 +51,17 @@ TSDUCK_SOURCE;
 namespace ts {
     class InjectPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(InjectPlugin);
     public:
         // Implementation of plugin API
         InjectPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         FileNameRateList      _infiles;           // Input file names and repetition rates
-        SectionFile::FileType _inType;            // Input files type
+        SectionFile::FileType _intype;            // Input files type
+        SectionFileArgs       _sections_opt;      // Section processing options
         bool                  _specific_rates;    // Some input files have specific repetition rates
         bool                  _undefined_rates;   // At least one file has no specific repetition rate.
         bool                  _use_files_bitrate; // Use the bitrate from the repetition rates in files
@@ -92,16 +93,10 @@ namespace ts {
 
         // Replace current packet with one from the packetizer.
         void replacePacket(TSPacket& pkt);
-
-        // Inaccessible operations
-        InjectPlugin() = delete;
-        InjectPlugin(const InjectPlugin&) = delete;
-        InjectPlugin& operator=(const InjectPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(inject, ts::InjectPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"inject", ts::InjectPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -111,7 +106,8 @@ TSPLUGIN_DECLARE_PROCESSOR(inject, ts::InjectPlugin)
 ts::InjectPlugin::InjectPlugin (TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Inject tables and sections in a TS", u"[options] input-file[=rate] ..."),
     _infiles(),
-    _inType(SectionFile::UNSPECIFIED),
+    _intype(SectionFile::UNSPECIFIED),
+    _sections_opt(),
     _specific_rates(false),
     _undefined_rates(false),
     _use_files_bitrate(false),
@@ -132,9 +128,12 @@ ts::InjectPlugin::InjectPlugin (TSP* tsp_) :
     _pid_packet_count(0),
     _eval_interval(0),
     _cycle_count(0),
-    _pzer(),
+    _pzer(duck, PID_NULL, CyclingPacketizer::NEVER, 0, tsp),
     _stuffing_policy(CyclingPacketizer::NEVER)
 {
+    duck.defineArgsForCharset(*this);
+    _sections_opt.defineArgs(*this);
+
     option(u"", 0, STRING, 1, UNLIMITED_COUNT);
     help(u"",
          u"Binary or XML files containing one or more sections or tables. By default, "
@@ -228,6 +227,8 @@ ts::InjectPlugin::InjectPlugin (TSP* tsp_) :
 bool ts::InjectPlugin::start()
 {
     // Get command line arguments
+    duck.loadArgs(*this);
+    _sections_opt.loadArgs(duck, *this);
     _inject_pid = intValue<PID>(u"pid", PID_NULL);
     _repeat_count = intValue<size_t>(u"repeat", 0);
     _terminate = present(u"terminate");
@@ -240,13 +241,13 @@ bool ts::InjectPlugin::start()
     _eval_interval = intValue<PacketCounter>(u"evaluate-interval", DEF_EVALUATE_INTERVAL);
 
     if (present(u"xml")) {
-        _inType = SectionFile::XML;
+        _intype = SectionFile::XML;
     }
     else if (present(u"binary")) {
-        _inType = SectionFile::BINARY;
+        _intype = SectionFile::BINARY;
     }
     else {
-        _inType = SectionFile::UNSPECIFIED;
+        _intype = SectionFile::UNSPECIFIED;
     }
 
     if (present(u"stuffing")) {
@@ -330,7 +331,7 @@ bool ts::InjectPlugin::reloadFiles()
     // Load sections from input files
     bool success = true;
     uint64_t bits_per_1000s = 0;  // Total bits in 1000 seconds.
-    SectionFile file;
+    SectionFile file(duck);
     file.setCRCValidation(_crc_op);
 
     for (FileNameRateList::iterator it = _infiles.begin(); it != _infiles.end(); ++it) {
@@ -338,7 +339,7 @@ bool ts::InjectPlugin::reloadFiles()
             // With --poll-files, we ignore non-existent files.
             it->retry_count = 0;  // no longer needed to retry
         }
-        else if (!file.load(it->file_name, *tsp, _inType)) {
+        else if (!file.load(it->file_name, *tsp, _intype) || !_sections_opt.processSectionFile(file, *tsp)) {
             success = false;
             if (it->retry_count > 0) {
                 it->retry_count--;
@@ -437,7 +438,7 @@ void ts::InjectPlugin::replacePacket(TSPacket& pkt)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::InjectPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::InjectPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     const PID pid = pkt.getPID();
 

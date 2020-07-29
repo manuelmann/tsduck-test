@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPacketEncapsulation.h"
 TSDUCK_SOURCE;
@@ -46,31 +45,29 @@ TSDUCK_SOURCE;
 namespace ts {
     class EncapPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(EncapPlugin);
     public:
         // Implementation of plugin API
         EncapPlugin(TSP*);
         virtual bool getOptions() override;
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        bool                _ignoreErrors;  // Ignore encapsulation errors.
-        bool                _pack;          // Outer packet packing option.
-        size_t              _maxBuffered;   // Max buffered packets.
-        PID                 _pidOutput;     // Output PID.
-        PID                 _pidPCR;        // PCR reference PID.
-        PIDSet              _pidsInput;     // Input PID's.
-        PacketEncapsulation _encap;         // Encapsulation engine.
-
-        // Inaccessible operations
-        EncapPlugin() = delete;
-        EncapPlugin(const EncapPlugin&) = delete;
-        EncapPlugin& operator=(const EncapPlugin&) = delete;
+        bool                         _ignoreErrors;  // Ignore encapsulation errors.
+        bool                         _pack;          // Outer packet packing option.
+        size_t                       _packLimit;     // Max limit distance.
+        size_t                       _maxBuffered;   // Max buffered packets.
+        PID                          _pidOutput;     // Output PID.
+        PID                          _pidPCR;        // PCR reference PID.
+        PIDSet                       _pidsInput;     // Input PID's.
+        PacketEncapsulation::PESMode _pesMode;       // Enable PES mode and select type.
+        size_t                       _pesOffset;     // Offset value in PES Synchronous.
+        PacketEncapsulation          _encap;         // Encapsulation engine.
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(encap, ts::EncapPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"encap", ts::EncapPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -81,10 +78,13 @@ ts::EncapPlugin::EncapPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Encapsulate packets from several PID's into one single PID", u"[options]"),
     _ignoreErrors(false),
     _pack(false),
+    _packLimit(0),
     _maxBuffered(0),
     _pidOutput(PID_NULL),
     _pidPCR(PID_NULL),
     _pidsInput(),
+    _pesMode(PacketEncapsulation::DISABLED),
+    _pesOffset(0),
     _encap()
 {
     option(u"ignore-errors", 'i');
@@ -112,18 +112,37 @@ ts::EncapPlugin::EncapPlugin(TSP* tsp_) :
          u"Specify a reference PID containing PCR's. The output PID will contain PCR's, "
          u"based on the same clock. By default, the output PID does not contain any PCR.");
 
-    option(u"pack");
+    option(u"pack", 0, INTEGER, 0, 1, 0, UNLIMITED_VALUE, true);
     help(u"pack",
          u"Emit outer packets when they are full only. By default, emit outer packets "
          u"as soon as possible, when null packets are available on input. With the default "
          u"behavior, inner packets are decapsulated with a better time accuracy, at the expense "
-         u"of a higher bitrate of the outer PID when there are many null packets in input.");
+         u"of a higher bitrate of the outer PID when there are many null packets in input. "
+         u"You can limit the distance between packets adding a positive value. "
+         u"With a 0 value the distance is disabled (=unlimited). "
+         u"The value 1 is equivalent to not use the pack mode.");
 
     option(u"pid", 'p', INTEGER, 1, UNLIMITED_COUNT, 0, PID_NULL - 1);
     help(u"pid", u"pid1[-pid2]",
          u"Specify an input PID or range of PID's to encapsulate. "
          u"Several --pid options can be specified. "
          u"The null PID 0x1FFF cannot be encapsulated.");
+
+    option(u"pes-mode", 0, Enumeration({
+        {u"disabled", PacketEncapsulation::DISABLED},
+        {u"fixed",    PacketEncapsulation::FIXED},
+        {u"variable", PacketEncapsulation::VARIABLE},
+    }));
+    help(u"pes-mode", u"mode", u"Enable PES mode encapsulation.");
+
+    option(u"pes-offset", 0, INT32);
+    help(u"pes-offset",
+         u"Offset used in Synchronous PES mode encapsulation. "
+         u"The value (positive or negative) is added to the current PCR to generate "
+         u"the PTS timestamp inserted in the PES header. "
+         u"The recommended values are between -90000 and +90000 (1 second). "
+         u"It requires to use the PCR option (--pcr-pid). "
+         u"The value 0 is equivalent to use the Asynchronous PES encapsulation.");
 }
 
 
@@ -135,10 +154,22 @@ bool ts::EncapPlugin::getOptions()
 {
     _ignoreErrors = present(u"ignore-errors");
     _pack = present(u"pack");
+    _packLimit = intValue<size_t>(u"pack", 0);
     _maxBuffered = intValue<size_t>(u"max-buffered-packets", PacketEncapsulation::DEFAULT_MAX_BUFFERED_PACKETS);
     _pidOutput = intValue<PID>(u"output-pid", PID_NULL);
     _pidPCR = intValue<PID>(u"pcr-pid", PID_NULL);
+    _pesMode = enumValue<PacketEncapsulation::PESMode>(u"pes-mode", PacketEncapsulation::DISABLED);
+    _pesOffset = intValue<size_t>(u"pes-offset", 0);
     getIntValues(_pidsInput, u"pid");
+
+    if (_pesOffset != 0 && _pesMode == PacketEncapsulation::DISABLED) {
+        tsp->error(u"invalid use of pes-offset, it's only valid when PES mode is enabled.");
+        return false;
+    }
+    if (_pesOffset != 0 && _pidPCR == PID_NULL) {
+        tsp->error(u"invalid use of pes-offset, it's only valid when using pcr-pid.");
+        return false;
+    }
 
     return true;
 }
@@ -151,7 +182,9 @@ bool ts::EncapPlugin::getOptions()
 bool ts::EncapPlugin::start()
 {
     _encap.reset(_pidOutput, _pidsInput, _pidPCR);
-    _encap.setPacking(_pack);
+    _encap.setPacking(_pack, _packLimit);
+    _encap.setPES(_pesMode);
+    _encap.setPESOffset(_pesOffset);
     _encap.setMaxBufferedPackets(_maxBuffered);
     return true;
 }
@@ -161,7 +194,7 @@ bool ts::EncapPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::EncapPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::EncapPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     if (_encap.processPacket(pkt) || _ignoreErrors || _encap.lastError().empty()) {
         return TSP_OK;

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsTablesLogger.h"
 TSDUCK_SOURCE;
@@ -45,28 +44,22 @@ TSDUCK_SOURCE;
 namespace ts {
     class TablesPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(TablesPlugin);
     public:
         // Implementation of plugin API
         TablesPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        TablesDisplayArgs _display_options;
-        TablesLoggerArgs  _logger_options;
-        TablesDisplay     _display;
-        TablesLoggerPtr   _logger;
-
-        // Inaccessible operations
-        TablesPlugin() = delete;
-        TablesPlugin(const TablesPlugin&) = delete;
-        TablesPlugin& operator=(const TablesPlugin&) = delete;
+        TablesDisplay _display;
+        TablesLogger  _logger;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(tables, ts::TablesPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"tables", ts::TablesPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -75,41 +68,37 @@ TSPLUGIN_DECLARE_PROCESSOR(tables, ts::TablesPlugin)
 
 ts::TablesPlugin::TablesPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Collect PSI/SI Tables", u"[options]"),
-    _display_options(),
-    _logger_options(),
-    _display(_display_options, *tsp),
-    _logger()
+    _display(duck),
+    _logger(_display)
 {
-    _logger_options.defineOptions(*this);
-    _display_options.defineOptions(*this);
+    duck.defineArgsForCAS(*this);
+    duck.defineArgsForPDS(*this);
+    duck.defineArgsForStandards(*this);
+    duck.defineArgsForCharset(*this);
+    _logger.defineArgs(*this);
+    _display.defineArgs(*this);
 }
 
 
 //----------------------------------------------------------------------------
-// Start method
+// Start /stop methods
 //----------------------------------------------------------------------------
+
+bool ts::TablesPlugin::getOptions()
+{
+    duck.reset();
+    return duck.loadArgs(*this) && _logger.loadArgs(duck, *this) && _display.loadArgs(duck, *this);
+}
 
 bool ts::TablesPlugin::start()
 {
-    // Decode command line options.
-    if (!_logger_options.load(*this) || !_display_options.load(*this)) {
-        return false;
-    }
-
-    // Create the logger.
-    _logger = new TablesLogger(_logger_options, _display, *tsp);
-    return !_logger->hasErrors();
+    duck.resetStandards();  // reset accumulated standards (not command line ones).
+    return _logger.open();
 }
-
-
-//----------------------------------------------------------------------------
-// Stop method
-//----------------------------------------------------------------------------
 
 bool ts::TablesPlugin::stop()
 {
-    _logger->close();
-    _logger.clear();
+    _logger.close();
     return true;
 }
 
@@ -118,8 +107,8 @@ bool ts::TablesPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::TablesPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::TablesPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    _logger->feedPacket (pkt);
-    return _logger->completed() ? TSP_END : TSP_OK;
+    _logger.feedPacket(pkt);
+    return _logger.completed() ? TSP_END : TSP_OK;
 }

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsBinaryTable.h"
 #include "tsSectionDemux.h"
 #include "tsNames.h"
 #include "tsVariable.h"
@@ -52,12 +52,13 @@ TSDUCK_SOURCE;
 namespace ts {
     class HistoryPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(HistoryPlugin);
     public:
         // Implementation of plugin API
         HistoryPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Description of one PID
@@ -97,16 +98,10 @@ namespace ts {
         // Report a history line
         void report(const UChar* fmt, const std::initializer_list<ArgMixIn> args);
         void report(PacketCounter, const UChar* fmt, const std::initializer_list<ArgMixIn> args);
-
-        // Inaccessible operations
-        HistoryPlugin() = delete;
-        HistoryPlugin(const HistoryPlugin&) = delete;
-        HistoryPlugin& operator=(const HistoryPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(history, ts::HistoryPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"history", ts::HistoryPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -126,7 +121,7 @@ ts::HistoryPlugin::HistoryPlugin(TSP* tsp_) :
     _last_tdt(Time::Epoch),
     _last_tdt_pkt(0),
     _last_tdt_reported(false),
-    _demux(this),
+    _demux(duck, this),
     _cpids()
 {
     option(u"cas", 'c');
@@ -277,7 +272,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_PAT: {
             if (table.sourcePID() == PID_PAT) {
                 report(u"PAT v%d, TS 0x%X", {table.version(), table.tableIdExtension()});
-                PAT pat(table);
+                PAT pat(duck, table);
                 if (pat.isValid()) {
                     // Filter all PMT PIDs
                     for (PAT::ServiceMap::const_iterator it = pat.pmts.begin(); it != pat.pmts.end(); ++it) {
@@ -293,7 +288,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_TDT: {
             if (table.sourcePID() == PID_TDT) {
                 // Save last TDT in context
-                _last_tdt.deserialize(table);
+                _last_tdt.deserialize(duck, table);
                 _last_tdt_pkt = _current_pkt;
                 _last_tdt_reported = false;
                 // Report TDT only if --time-all
@@ -307,7 +302,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_TOT: {
             if (table.sourcePID() == PID_TOT) {
                 if (_time_all) {
-                    TOT tot(table);
+                    TOT tot(duck, table);
                     if (tot.isValid()) {
                         if (tot.regions.empty()) {
                             report(u"TOT: %s UTC", {tot.utc_time.format(Time::DATE | Time::TIME)});
@@ -323,7 +318,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
 
         case TID_PMT: {
             report(u"PMT v%d, service 0x%X", {table.version(), table.tableIdExtension()});
-            PMT pmt(table);
+            PMT pmt(duck, table);
             if (pmt.isValid()) {
                 // Get components of the service, including ECM PID's
                 analyzeCADescriptors(pmt.descs, pmt.service_id);
@@ -339,7 +334,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_NIT_ACT:
         case TID_NIT_OTH: {
             if (table.sourcePID() == PID_NIT) {
-                report(u"%s v%d, network 0x%X", {names::TID(table.tableId()), table.version(), table.tableIdExtension()});
+                report(u"%s v%d, network 0x%X", {names::TID(duck, table.tableId()), table.version(), table.tableIdExtension()});
             }
             break;
         }
@@ -347,7 +342,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_SDT_ACT:
         case TID_SDT_OTH: {
             if (table.sourcePID() == PID_SDT) {
-                report(u"%s v%d, TS 0x%X", {names::TID(table.tableId()), table.version(), table.tableIdExtension()});
+                report(u"%s v%d, TS 0x%X", {names::TID(duck, table.tableId()), table.version(), table.tableIdExtension()});
             }
             break;
         }
@@ -362,7 +357,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         case TID_CAT:
         case TID_TSDT: {
             // Long sections without TID extension
-            report(u"%s v%d", {names::TID(table.tableId()), table.version()});
+            report(u"%s v%d", {names::TID(duck, table.tableId()), table.version()});
             break;
         }
 
@@ -377,7 +372,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
         }
 
         default: {
-            const UString name(names::TID(table.tableId()));
+            const UString name(names::TID(duck, table.tableId()));
             if (table.tableId() >= TID_EIT_MIN && table.tableId() <= TID_EIT_MAX) {
                 report(u"%s v%d, service 0x%X", {name, table.version(), table.tableIdExtension()});
             }
@@ -400,7 +395,7 @@ void ts::HistoryPlugin::handleTable(SectionDemux& demux, const BinaryTable& tabl
 // Analyze a list of descriptors, looking for CA descriptors.
 //----------------------------------------------------------------------------
 
-void ts::HistoryPlugin::analyzeCADescriptors (const DescriptorList& dlist, uint16_t service_id)
+void ts::HistoryPlugin::analyzeCADescriptors(const DescriptorList& dlist, uint16_t service_id)
 {
     // Loop on all CA descriptors
     for (size_t index = dlist.search(DID_CA); index < dlist.count(); index = dlist.search(DID_CA, index + 1)) {
@@ -426,7 +421,7 @@ void ts::HistoryPlugin::analyzeCADescriptors (const DescriptorList& dlist, uint1
         // Normally, no PID should be referenced in the private part of
         // a CA descriptor. However, this rule is not followed by the
         // old format of MediaGuard CA descriptors.
-        if (CASFamilyOf (sysid) == CAS_MEDIAGUARD && size >= 13) {
+        if (CASFamilyOf(sysid) == CAS_MEDIAGUARD && size >= 13) {
             // MediaGuard CA descriptor in the PMT.
             desc += 13; size -= 13;
             while (size >= 15) {
@@ -447,7 +442,7 @@ void ts::HistoryPlugin::analyzeCADescriptors (const DescriptorList& dlist, uint1
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::HistoryPlugin::processPacket (TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::HistoryPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Make sure we know how long to wait for suspended PID
     if (_suspend_after == 0) {

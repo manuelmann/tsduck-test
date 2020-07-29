@@ -15,7 +15,6 @@ error() { echo >&2 "$SCRIPT: $*"; exit 1; }
 
 # Directories.
 ROOTDIR=$(cd $SCRIPTDIR/..; pwd)
-INSTALLDIR=$ROOTDIR/installers
 
 # Get most recent git tag.
 TAG=$(cd $ROOTDIR; git tag --sort=-creatordate | head -1)
@@ -46,17 +45,17 @@ WIN32Z=$(getlink '/TSDuck-Win32-.*-Portable\.zip$')
 WIN64Z=$(getlink '/TSDuck-Win64-.*-Portable\.zip$')
 EL64=$(getlink '/tsduck-[0-9].*\.el[0-9]*\.x86_64\.rpm$')
 FC64=$(getlink '/tsduck-[0-9].*\.fc[0-9]*\.x86_64\.rpm$')
-UB64=$(getlink '/tsduck_[0-9].*_amd64\.deb$')
+UB64=$(getlink '/tsduck_[0-9].*\.ubuntu.*_amd64\.deb$')
+DB64=$(getlink '/tsduck_[0-9].*\.debian.*_amd64\.deb$')
 ARM=$(getlink '/tsduck_[0-9].*_armhf\.deb$')
 EL64DEV=$(getlink '/tsduck-devel-[0-9].*\.el[0-9]*\.x86_64\.rpm$')
 FC64DEV=$(getlink '/tsduck-devel-[0-9].*\.fc[0-9]*\.x86_64\.rpm$')
-UB64DEV=$(getlink '/tsduck-dev_[0-9].*_amd64\.deb$')
+UB64DEV=$(getlink '/tsduck-dev_[0-9].*\.ubuntu.*_amd64\.deb$')
+DB64DEV=$(getlink '/tsduck-dev_[0-9].*\.debian.*_amd64\.deb$')
 ARMDEV=$(getlink '/tsduck-dev_[0-9].*_armhf\.deb$')
 
 # Now create the markdown file.
-MDFILE=$INSTALLDIR/github-release-$TAG.md
-info "creating $MDFILE ..."
-cat >$MDFILE <<EOF
+cat <<EOF
 Binaries for command-line tools and plugins:
 * Windows 32 bits: $WIN32
 * Windows 64 bits: $WIN64
@@ -64,6 +63,7 @@ Binaries for command-line tools and plugins:
 * Windows 64 bits (portable): $WIN64Z
 * CentOS 64 bits: $EL64
 * Fedora 64 bits: $FC64
+* Debian 64 bits: $DB64
 * Ubuntu 64 bits: $UB64
 * Raspbian 32 bits (Raspberry Pi): $ARM
 * macOS: [use Homebrew](https://github.com/tsduck/homebrew-tsduck/blob/master/README.md)
@@ -72,6 +72,7 @@ Binaries for development environment:
 * Windows: Included in installer (select option "Development")
 * CentOS 64 bits: $EL64DEV
 * Fedora 64 bits: $FC64DEV
+* Debian 64 bits: $DB64DEV
 * Ubuntu 64 bits: $UB64DEV
 * Raspbian 32 bits (Raspberry Pi): $ARMDEV
 * macOS: Included in Homebrew package

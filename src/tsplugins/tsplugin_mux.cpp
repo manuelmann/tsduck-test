@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,10 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
-#include "tsTSFileInput.h"
-#include "tsMemoryUtils.h"
+#include "tsTSFile.h"
+#include "tsContinuityAnalyzer.h"
+#include "tsMemory.h"
 TSDUCK_SOURCE;
 
 
@@ -46,26 +46,26 @@ TSDUCK_SOURCE;
 namespace ts {
     class MuxPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(MuxPlugin);
     public:
         // Implementation of plugin API
         MuxPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        TSFileInput   _file;               // Input file
-        bool          _terminate;          // Terminate processing after last new packet.
-        bool          _update_cc;          // Ignore continuity counters.
-        bool          _check_pid_conflict; // Check new PIDs in TS
-        PIDSet        _ts_pids;            // PID's on original TS
-        uint8_t       _cc[PID_MAX];        // Continuity counters in new PID's
-        bool          _force_pid;          // PID value to force
-        PID           _force_pid_value;    // PID value to force
-        BitRate       _bitrate;            // Target bitrate for inserted packets
-        PacketCounter _inter_pkt;          // # TS packets between 2 new PID packets
-        PacketCounter _pid_next_pkt;       // Next time to insert a packet
-        PacketCounter _packet_count;       // TS packet counter
+        TSFile        _file;                  // Input file
+        bool          _terminate;             // Terminate processing after last new packet.
+        bool          _update_cc;             // Ignore continuity counters.
+        bool          _check_pid_conflict;    // Check new PIDs in TS
+        PIDSet        _ts_pids;               // PID's on original TS
+        bool          _force_pid;             // PID value to force
+        PID           _force_pid_value;       // PID value to force
+        BitRate       _bitrate;               // Target bitrate for inserted packets
+        PacketCounter _inter_pkt;             // # TS packets between 2 new PID packets
+        PacketCounter _pid_next_pkt;          // Next time to insert a packet
+        PacketCounter _packet_count;          // TS packet counter
         uint64_t      _inter_time;            // Milliseconds between 2 new packets, internally calculated to PTS (multiplicated by 90)
         uint64_t      _min_pts;               // Start only inserting packets when this PTS has been passed
         PID           _pts_pid;               // defines the PID of min-pts setting
@@ -75,16 +75,14 @@ namespace ts {
         uint64_t      _inserted_packet_count; // counts inserted packets
         uint64_t      _youngest_pts;          // stores last pcr value seen (calculated from PCR to PTS value by dividing by 300)
         uint64_t      _pts_last_inserted;     // stores nearest pts (actually pcr/300) of last packet insertion
-
-        // Inaccessible operations
-        MuxPlugin() = delete;
-        MuxPlugin(const MuxPlugin&) = delete;
-        MuxPlugin& operator=(const MuxPlugin&) = delete;
+        TSPacketFormat             _file_format;  // Input file format
+        TSPacketMetadata::LabelSet _setLabels;    // Labels to set on output packets.
+        TSPacketMetadata::LabelSet _resetLabels;  // Labels to reset on output packets.
+        ContinuityAnalyzer         _cc_fixer;     // To fix continuity counters in mux'ed PID's
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(mux, ts::MuxPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"mux", ts::MuxPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -98,7 +96,6 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
     _update_cc(false),
     _check_pid_conflict(false),
     _ts_pids(),
-    _cc(),
     _force_pid(false),
     _force_pid_value(PID_NULL),
     _bitrate(0),
@@ -113,10 +110,14 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
     _max_insert_count(0),
     _inserted_packet_count(0),
     _youngest_pts(0),
-    _pts_last_inserted(0)
+    _pts_last_inserted(0),
+    _file_format(TSPacketFormat::AUTODETECT),
+    _setLabels(),
+    _resetLabels(),
+    _cc_fixer(AllPIDs, tsp)
 {
     option(u"", 0, STRING, 1, 1);
-    help(u"", u"Input binary file containing 188-byte transport packets.");
+    help(u"", u"Input transport stream file.");
 
     option(u"bitrate", 'b', UINT32);
     help(u"bitrate",
@@ -128,6 +129,14 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
     help(u"byte-offset",
          u"Start reading the file at the specified byte offset (default: 0). "
          u"This option is allowed only if the input file is a regular file.");
+
+    option(u"format", 0, TSPacketFormatEnum);
+    help(u"format", u"name",
+         u"Specify the format of the input file. "
+         u"By default, the format is automatically detected. "
+         u"But the auto-detection may fail in some cases "
+         u"(for instance when the first time-stamp of an M2TS file starts with 0x47). "
+         u"Using this option forces a specific format.");
 
     option(u"inter-packet", 'i', UINT32);
     help(u"inter-packet",
@@ -146,7 +155,7 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
 
     option(u"joint-termination", 'j');
     help(u"joint-termination",
-         u"Perform a \"joint termination\" when file insersion is complete. "
+         u"Perform a \"joint termination\" when the file insertion is complete. "
          u"See \"tsp --help\" for more details on \"joint termination\".");
 
     option(u"max-insert-count", 0, UNSIGNED);
@@ -195,9 +204,19 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
 
     option(u"terminate", 't');
     help(u"terminate",
-         u"Terminate packet processing when file insersion is complete. By default, "
+         u"Terminate packet processing when the file insertion is complete. By default, "
          u"when packet insertion is complete, the transmission continues and the "
          u"stuffing is no longer modified.");
+
+    option(u"set-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    help(u"set-label", u"label1[-label2]",
+         u"Set the specified labels on the muxed packets. "
+         u"Several --set-label options may be specified.");
+
+    option(u"reset-label", 0, INTEGER, 0, UNLIMITED_COUNT, 0, TSPacketMetadata::LABEL_MAX);
+    help(u"reset-label", u"label1[-label2]",
+         u"Clear the specified labels on the muxed packets. "
+         u"Several --reset-label options may be specified.");
 }
 
 
@@ -207,7 +226,7 @@ ts::MuxPlugin::MuxPlugin(TSP* tsp_) :
 
 bool ts::MuxPlugin::start()
 {
-    tsp->useJointTermination (present(u"joint-termination"));
+    tsp->useJointTermination(present(u"joint-termination"));
     _terminate = present(u"terminate");
     _update_cc = !present(u"no-continuity-update");
     _check_pid_conflict = !present(u"no-pid-conflict-check");
@@ -227,7 +246,9 @@ bool ts::MuxPlugin::start()
     _pts_last_inserted = 0;
     _inserted_packet_count = 0;
     _pts_range_ok = true;  // by default, enable packet insertion
-    TS_ZERO (_cc);
+    _file_format = enumValue<TSPacketFormat>(u"format", TSPacketFormat::AUTODETECT);
+    getIntValues(_setLabels, u"set-label");
+    getIntValues(_resetLabels, u"reset-label");
 
     // Convert --inter-time from milliseconds to PTS units.
     _inter_time = _inter_time * 90;
@@ -247,10 +268,16 @@ bool ts::MuxPlugin::start()
         _pts_range_ok = false;
     }
 
-    return _file.open(value(u""),
-                      intValue<size_t>(u"repeat", 0),
-                      intValue<uint64_t>(u"byte-offset", intValue<uint64_t>(u"packet-offset", 0) * PKT_SIZE),
-                      *tsp);
+    // Configure the continuity counter fixing.
+    if (_update_cc) {
+        _cc_fixer.setGenerator(true);
+    }
+
+    return _file.openRead(value(u""),
+                          intValue<size_t>(u"repeat", 0),
+                          intValue<uint64_t>(u"byte-offset", intValue<uint64_t>(u"packet-offset", 0) * PKT_SIZE),
+                          *tsp,
+                          _file_format);
 }
 
 
@@ -268,7 +295,7 @@ bool ts::MuxPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::MuxPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::MuxPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Initialization sequences (executed only once).
     if (_packet_count == 0 && _bitrate != 0) {
@@ -347,7 +374,7 @@ ts::ProcessorPlugin::Status ts::MuxPlugin::processPacket(TSPacket& pkt, bool& fl
     }
 
     // Now, it is time to insert a new packet, read it. Directly overwrite the memory area of current stuffing pkt
-    if (_file.read(&pkt, 1, *tsp) == 0) {
+    if (_file.readPackets(&pkt, nullptr, 1, *tsp) == 0) {
         // File read error, error message already reported
         // If processing terminated, either exit or transparently pass packets
         if (tsp->useJointTermination()) {
@@ -364,7 +391,7 @@ ts::ProcessorPlugin::Status ts::MuxPlugin::processPacket(TSPacket& pkt, bool& fl
 
     _inserted_packet_count++;
     _pts_last_inserted = _youngest_pts;   // store pts of last insertion
-    tsp->debug(u"Inserting Packet at PTS: %'d, file: %s", { _pts_last_inserted,_file.getFileName() });
+    tsp->debug(u"[%d:%d] Inserting Packet at PTS: %'d (pos: %'d), file: %s (pos: %'d)", { _inter_pkt,_pid_next_pkt,_pts_last_inserted,_packet_count,_file.getFileName(),_inserted_packet_count });
 
     if (_inter_time != 0) {
         _pts_range_ok = false; // reset _pts_range_ok signal if inter_time is specified
@@ -380,12 +407,15 @@ ts::ProcessorPlugin::Status ts::MuxPlugin::processPacket(TSPacket& pkt, bool& fl
         return TSP_END;
     }
     if (_update_cc) {
-        pkt.setCC(_cc[pid]);
-        _cc[pid] = (_cc[pid] + 1) & CC_MASK;
+        _cc_fixer.feedPacket(pkt);
     }
 
     // Next insertion point
     _pid_next_pkt += _inter_pkt;
+
+    // Apply labels on muxed packets.
+    pkt_data.setLabels(_setLabels);
+    pkt_data.clearLabels(_resetLabels);
 
     return TSP_OK;
 }

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,10 +32,12 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsEITProcessor.h"
+#include "tsAbstractSignalization.h"
 #include "tsTime.h"
 #include "tsMJD.h"
+#include "tsBCD.h"
 #include "tsCRC32.h"
 TSDUCK_SOURCE;
 
@@ -47,30 +49,45 @@ TSDUCK_SOURCE;
 namespace ts {
     class TimeRefPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(TimeRefPlugin);
     public:
         // Implementation of plugin API
         TimeRefPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        MilliSecond   _add_milliseconds;  // Add this to all time values
-        bool          _use_timeref;       // Use a new time reference
-        Time          _timeref;           // Current value of new time reference
-        PacketCounter _timeref_pkt;       // Packet number for _timeref
-        PacketCounter _current_pkt;       // Current packet in TS
-        bool          _update_tdt;        // Update the TDT
-        bool          _update_tot;        // Update the TOT
+        // Command line options:
+        bool              _update_tdt;        // Update the TDT
+        bool              _update_tot;        // Update the TOT
+        bool              _update_eit;        // Update the EIT's
+        bool              _eit_date_only;     // Update date field only in EIT.
+        bool              _use_timeref;       // Use a new time reference
+        bool              _update_local;      // Update local time info, not only UTC
+        MilliSecond       _add_milliseconds;  // Add this to all time values
+        Time              _startref;          // Starting value of new time reference
+        int               _local_offset;      // Local time offset in minutes (INT_MAX if unspecified)
+        int               _next_offset;       // Next time offset after DST change, in minutes (INT_MAX if unspecified)
+        Time              _next_change;       // Next DST time
+        std::set<UString> _only_countries;    // Countries for TOT local time modification
+        std::set<int>     _only_regions;      // Regions for TOT local time modification
 
-        // Inaccessible operations
-        TimeRefPlugin() = delete;
-        TimeRefPlugin(const TimeRefPlugin&) = delete;
-        TimeRefPlugin& operator=(const TimeRefPlugin&) = delete;
+        // Processing data:
+        Time              _timeref;           // Current value of new time reference
+        PacketCounter     _timeref_pkt;       // Packet number for _timeref
+        EITProcessor      _eit_processor;     // Modify EIT's
+        bool              _eit_active;        // Update EIT's now (disabled during init phase with --start)
+
+        // Process a TDT or TOT section.
+        void processSection(uint8_t* section, size_t size);
+
+        // Process a local_time_offset_descriptor.
+        void processLocalTime(uint8_t* desc, size_t size);
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(timeref, ts::TimeRefPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"timeref", ts::TimeRefPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -79,24 +96,76 @@ TSPLUGIN_DECLARE_PROCESSOR(timeref, ts::TimeRefPlugin)
 
 ts::TimeRefPlugin::TimeRefPlugin(TSP* tsp_) :
     ProcessorPlugin(tsp_, u"Update TDT and TOT with a new time reference", u"[options]"),
-    _add_milliseconds(0),
+    _update_tdt(false),
+    _update_tot(false),
+    _update_eit(false),
+    _eit_date_only(false),
     _use_timeref(false),
+    _update_local(false),
+    _add_milliseconds(0),
+    _startref(Time::Epoch),
+    _local_offset(INT_MAX),
+    _next_offset(INT_MAX),
+    _next_change(Time::Epoch),
+    _only_countries(),
+    _only_regions(),
     _timeref(Time::Epoch),
     _timeref_pkt(0),
-    _current_pkt(0),
-    _update_tdt(false),
-    _update_tot(false)
+    _eit_processor(duck),
+    _eit_active(false)
 {
     option(u"add", 'a', INTEGER, 0, 1, std::numeric_limits<int>::min(), std::numeric_limits<int>::max());
     help(u"add",
          u"Add the specified number of seconds to all UTC time. Specify a negative "
          u"value to make the time reference go backward.");
 
+    option(u"eit");
+    help(u"eit",
+         u"Update events start time in EIT's. By default, EIT's are not modified. "
+         u"When --add is used, the specified offset is applied to all events start time. "
+         u"When --start is used, EIT's are dropped until the first TDT or TOT is encountered. "
+         u"Then, the difference between the first TDT or TOT time and the new time reference at this point is applied.");
+
+    option(u"eit-date-only");
+    help(u"eit-date-only",
+        u"Same as --eit but update the date field only in the event start dates in EIT's. "
+        u"The hour, minute and second fields of the event start dates are left unchanged.");
+
+    option(u"local-time-offset", 'l', INTEGER, 0, 1, -720, 720);
+    help(u"local-time-offset", u"minutes",
+         u"Specify a new local time offset in minutes to set in the TOT. "
+         u"The allowed range is -720 to 720 (from -12 hours to +12 hours). "
+         u"By default, the local time offset is unchanged.");
+
+    option(u"next-change", 0, STRING);
+    help(u"next-change",
+         u"Specify a new UTC date & time for the next DST change. "
+         u"The time value must be in the format \"year/month/day:hour:minute:second\". "
+         u"By default, the time of next DST change is unmodified.");
+
+    option(u"next-time-offset", 0, INTEGER, 0, 1, -720, 720);
+    help(u"next-time-offset", u"minutes",
+         u"Specify a new local time offset to be applied after the next DST change. "
+         u"The value is in minutes, similar to --local-time-offset. "
+         u"By default, the next time offset is unchanged.");
+
     option(u"notdt");
     help(u"notdt", u"Do not update TDT.");
 
     option(u"notot");
     help(u"notot", u"Do not update TOT.");
+
+    option(u"only-country", 0, STRING, 0, UNLIMITED_COUNT);
+    help(u"only-country", u"name",
+         u"Restrict the modification of --local-time-offset, --next-change and "
+         u"--next-time-offset to the specified 3-letter country code. "
+         u"Several --only-country options are allowed. ");
+
+    option(u"only-region", 0, INTEGER, 0, UNLIMITED_COUNT, 0, 0x3F);
+    help(u"only-region", u"id1[-id2]",
+        u"Restrict the modification of --local-time-offset, --next-change and "
+        u"--next-time-offset to the specified region id inside a country. "
+        u"Several --only-region options are allowed. ");
 
     option(u"start", 's', STRING);
     help(u"start",
@@ -109,31 +178,78 @@ ts::TimeRefPlugin::TimeRefPlugin(TSP* tsp_) :
 
 
 //----------------------------------------------------------------------------
+// Get command line options
+//----------------------------------------------------------------------------
+
+bool ts::TimeRefPlugin::getOptions()
+{
+    _update_tdt = !present(u"notdt");
+    _update_tot = !present(u"notot");
+    _eit_date_only = present(u"eit-date-only");
+    _update_eit = _eit_date_only || present(u"eit");
+    _use_timeref = present(u"start");
+    _add_milliseconds = MilliSecPerSec * intValue<int>(u"add", 0);
+    _local_offset = intValue<int>(u"local-time-offset", INT_MAX);
+    _next_offset = intValue<int>(u"next-time-offset", INT_MAX);
+    getIntValues(_only_regions, u"only-region");
+
+    if (_use_timeref) {
+        const UString start(value(u"start"));
+        // Decode an absolute time string
+        if (start == u"system") {
+            _startref = Time::CurrentUTC();
+            tsp->verbose(u"current system clock is %s", {ts::UString(_startref)});
+        }
+        else if (!_startref.decode(start)) {
+            tsp->error(u"invalid --start time value \"%s\" (use \"year/month/day:hour:minute:second\")", {start});
+            return false;
+        }
+    }
+
+    if (_add_milliseconds != 0 && _use_timeref) {
+        tsp->error(u"--add and --start are mutually exclusive");
+        return false;
+    }
+
+    // In a local_time_offset_descriptor, the sign of the time offsets is stored once only.
+    // So, the current and next time offsets must have the same sign.
+    if (_local_offset != INT_MAX && _next_offset != INT_MAX && _local_offset * _next_offset < 0) {
+        tsp->error(u"values of --local-time-offset and --next-time-offset must be all positive or all negative");
+        return false;
+    }
+
+    // Next DST change in absolute time.
+    const UString next(value(u"next-change"));
+    if (!next.empty() && !_next_change.decode(next)) {
+        tsp->error(u"invalid --next-change value \"%s\" (use \"year/month/day:hour:minute:second\")", {next});
+        return false;
+    }
+
+    // Store all --only-country values in lower case.
+    for (size_t i = 0; i < count(u"only-country"); ++i) {
+        _only_countries.insert(value(u"only-country", u"", i).toLower());
+    }
+
+    // Do we need to update local_time_offset_descriptor?
+    _update_local = _local_offset != INT_MAX || _next_offset != INT_MAX || _next_change != Time::Epoch || !_only_countries.empty() || !_only_regions.empty();
+
+    return true;
+}
+
+
+//----------------------------------------------------------------------------
 // Start method
 //----------------------------------------------------------------------------
 
 bool ts::TimeRefPlugin::start()
 {
-    _update_tdt = !present(u"notdt");
-    _update_tot = !present(u"notot");
-    _add_milliseconds = MilliSecPerSec * intValue<int>(u"add", 0);
-    _current_pkt = 0;
-    _timeref_pkt = 1;
-
-    _use_timeref = present(u"start");
-    if (_use_timeref) {
-        const UString start(value(u"start"));
-        // Decode an absolute time string
-        if (start == u"system") {
-            _timeref = Time::CurrentUTC();
-            tsp->verbose(u"current system clock is %s", {ts::UString(_timeref)});
-        }
-        else if (!_timeref.decode(start)) {
-            tsp->error(u"invalid time value \"%s\" (use \"year/month/day:hour:minute:second\")", {start});
-            return false;
-        }
+    _timeref = _startref;
+    _timeref_pkt = 0;
+    _eit_processor.reset();
+    _eit_active = _update_eit && _add_milliseconds != 0;
+    if (_eit_active) {
+        _eit_processor.addStartTimeOffet(_add_milliseconds, _eit_date_only);
     }
-
     return true;
 }
 
@@ -142,93 +258,185 @@ bool ts::TimeRefPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::TimeRefPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::TimeRefPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    // TDT and TOT are short sections which fit into one packet. Moreover, we need to update
-    // each packet directly. Consequently, we do not use a demux and directly hack the packet.
-    // TDT and TOT both store a UTC time in first 5 bytes of short section payload.
+    const PID pid = pkt.getPID();
 
-    // Count packets in TS
-    _current_pkt++;
-
-    // Skip non-time packets
-    if (pkt.getPID() != PID_TDT) {
-        return TSP_OK;
-    }
-
-    // Locate section inside packet.
-    size_t offset = pkt.getHeaderSize();
-    bool ok = pkt.getPUSI() && offset + 1 <= PKT_SIZE;
-    if (ok) {
-        // Locate start of section (add pointer field)
-        offset += 1 + pkt.b[offset];
-        ok = offset + SHORT_SECTION_HEADER_SIZE <= PKT_SIZE;
-    }
-    uint8_t* const section = pkt.b + offset;
-    uint8_t* const payload = section + SHORT_SECTION_HEADER_SIZE;
-    TID tid = ok ? section[0] : TID(TID_NULL);
-    const size_t payload_size = ok ? (GetUInt16(section + 1) & 0x0FFF) : 0;
-    ok = payload + payload_size <= pkt.b + PKT_SIZE;
-    if (!ok) {
-        tsp->warning(u"got TDT/TOT PID packet with no complete section inside, cannot update");
-        return TSP_OK;
-    }
-    const size_t section_size = SHORT_SECTION_HEADER_SIZE + payload_size;
-
-    // Check table id
-    if ((tid == TID_TDT && !_update_tdt) || (tid == TID_TOT && !_update_tot)) {
-        return TSP_OK;
-    }
-    if (tid != TID_TDT && tid != TID_TOT) {
-        tsp->warning(u"found table_id %d (0x%X) in TDT/TOT PID", {tid, tid});
-        return TSP_OK;
-    }
-
-    // Check section size
-    if ((tid == TID_TDT && payload_size < MJD_SIZE) || (tid == TID_TOT && payload_size < MJD_SIZE + 4)) {
-        tsp->warning(u"invalid TDT/TOD, payload too short: %d bytes", {payload_size});
-        return TSP_OK;
-    }
-
-    // Check TOT CRC if needs to be updated
-    if (tid == TID_TOT && !_use_timeref) {
-        if (CRC32(section, section_size - 4) != GetUInt32(section + section_size - 4)) {
-            tsp->warning(u"incorrect CRC in TOT, cannot reliably update");
+    // Process EIT's.
+    if (pid == PID_EIT && _update_eit) {
+        if (_eit_active) {
+            // Process EIT packet, possibly replacing it.
+            _eit_processor.processPacket(pkt);
             return TSP_OK;
+        }
+        else {
+            // We do not know yet which offset to apply, nullify EIT packets.
+            return TSP_NULL;
         }
     }
 
-    // Update UTC time in section
-    Time time;
+    // Process TOT or TDT packet.
+    if (pid == PID_TDT) {
+        // TDT and TOT are short sections which fit into one packet. We try to update each
+        // packet directly. Consequently, we do not use a demux and directly hack the packet.
+        // Most of the time, a packet contains either a TOT or TDT but there are cases where a
+        // packet contains both a TDT and TOT. So we loop on all sections in the packet.
 
-    if (_use_timeref) {
-        const BitRate bitrate = tsp->bitrate();
-        if (bitrate == 0) {
-            tsp->warning(u"unknown bitrate cannot reliably update TDT/TOT");
-            return TSP_OK;
+        // Locate first section inside packet.
+        size_t offset = pkt.getHeaderSize();
+        bool ok = pkt.getPUSI() && offset < PKT_SIZE;
+        if (ok) {
+            offset += 1 + size_t(pkt.b[offset]); // add pointer field
         }
-        _timeref += PacketInterval(bitrate, _current_pkt - _timeref_pkt);
-        _timeref_pkt = _current_pkt;
-        time = _timeref;
-    }
-    else if (!DecodeMJD(payload, MJD_SIZE, time)) {
-        tsp->warning(u"error decoding UTC time from TDT/TOT");
-        return TSP_OK;
-    }
 
-    time += _add_milliseconds;
-
-    // Coverity false positive: payload + MJD_SIZE is within packet boudaries.
-    // coverity[OVERRUN)
-    if (!EncodeMJD(time, payload, MJD_SIZE)) {
-        tsp->warning(u"error encoding UTC time into TDT/TOT");
-        return TSP_OK;
-    }
-
-    // Recompute CRC in TOT
-    if (tid == TID_TOT) {
-        PutUInt32(section + section_size - 4, CRC32(section, section_size - 4));
+        // Loop on all sections in the packet.
+        while (ok && offset < PKT_SIZE && pkt.b[offset] != 0xFF) {
+            ok = offset + 3 <= PKT_SIZE;
+            if (ok) {
+                // Get section size.
+                const size_t size = 3 + size_t(GetUInt16(pkt.b + offset + 1) & 0x0FFF);
+                ok = offset + size <= PKT_SIZE;
+                if (ok) {
+                    processSection(pkt.b + offset, size);
+                    offset += size;
+                }
+            }
+        }
+        if (!ok) {
+            tsp->warning(u"got TDT/TOT PID packet with no complete section inside, cannot update");
+        }
     }
 
     return TSP_OK;
+}
+
+
+//----------------------------------------------------------------------------
+// Process a TDT or TOT section.
+//----------------------------------------------------------------------------
+
+void ts::TimeRefPlugin::processSection(uint8_t* section, size_t size)
+{
+    // Point after end of section.
+    uint8_t* const section_end = section + size;
+
+    // Check table id.
+    const TID tid = section[0];
+    if (tid != TID_TDT && tid != TID_TOT) {
+        tsp->warning(u"found table_id 0x%X (%d) in TDT/TOT PID", {tid, tid});
+        return;
+    }
+
+    // Check section size.
+    if ((tid == TID_TDT && size < SHORT_SECTION_HEADER_SIZE + MJD_SIZE) || (tid == TID_TOT && size < SHORT_SECTION_HEADER_SIZE + MJD_SIZE + 4)) {
+        tsp->warning(u"invalid TDT/TOD, too short: %d bytes", {size});
+        return;
+    }
+
+    // Check TOT CRC.
+    if (tid == TID_TOT) {
+        if (CRC32(section, size - 4) != GetUInt32(section_end - 4)) {
+            tsp->warning(u"incorrect CRC in TOT, cannot reliably update");
+            return;
+        }
+    }
+
+    // Decode UTC time in section.
+    // TDT and TOT both store a UTC time in first 5 bytes of short section payload.
+    Time time;
+    if (!DecodeMJD(section + SHORT_SECTION_HEADER_SIZE, MJD_SIZE, time)) {
+        tsp->warning(u"error decoding UTC time from TDT/TOT");
+        return;
+    }
+
+    // Compute updated time.
+    if (_use_timeref) {
+
+        // Compute updated time reference.
+        const BitRate bitrate = tsp->bitrate();
+        if (bitrate == 0) {
+            tsp->warning(u"unknown bitrate cannot reliably update TDT/TOT");
+            return;
+        }
+        _timeref += PacketInterval(bitrate, tsp->pluginPackets() - _timeref_pkt);
+        _timeref_pkt = tsp->pluginPackets();
+
+        // Configure EIT processor if time offset not yet known.
+        if (_update_eit && !_eit_active) {
+            const MilliSecond add = _timeref - time;
+            tsp->verbose(u"adding %'d milliseconds to all event start time in EIT's", {add});
+            _eit_processor.addStartTimeOffet(add, _eit_date_only);
+            _eit_active = true;
+        }
+
+        // Use the compute time reference as new TDT/TOT time.
+        time = _timeref;
+    }
+    else {
+        // Apply time offset.
+        time += _add_milliseconds;
+    }
+
+    // Do we need to update the table?
+    if ((tid == TID_TDT && _update_tdt) || (tid == TID_TOT && _update_tot)) {
+
+        // Update UTC time in section
+        if (!EncodeMJD(time, section + SHORT_SECTION_HEADER_SIZE, MJD_SIZE)) {
+            tsp->warning(u"error encoding UTC time into TDT/TOT");
+            return;
+        }
+
+        // More modification in TOT
+        if (tid == TID_TOT) {
+            // Get start and end of descriptor loop.
+            uint8_t* desc = section + SHORT_SECTION_HEADER_SIZE + MJD_SIZE + 2;
+            uint8_t* desc_end = desc + (desc > section_end ? 0 : (GetUInt16(desc - 2) & 0x0FFF));
+
+            // Loop on all descriptors, updating local_time_offset_descriptor.
+            if (_update_local && desc_end <= section_end) {
+                while (desc + 2 <= desc_end) {
+                    const size_t desc_len = desc[1];
+                    if (desc + 2 + desc_len <= desc_end && desc[0] == DID_LOCAL_TIME_OFFSET) {
+                        processLocalTime(desc + 2, desc_len);
+                    }
+                    desc += 2 + desc_len;
+                }
+            }
+
+            // Recompute CRC of the TOT.
+            PutUInt32(section_end - 4, CRC32(section, size - 4));
+        }
+    }
+}
+
+
+//----------------------------------------------------------------------------
+// Process a local_time_offset_descriptor.
+//----------------------------------------------------------------------------
+
+void ts::TimeRefPlugin::processLocalTime(uint8_t* data, size_t size)
+{
+    // Loop on all regions (13 bytes each)
+    while (size >= 13) {
+        // Apply country and region filters.
+        // Country code are case-insensitive and stored in lower case.
+        if ((_only_countries.empty() || _only_countries.find(AbstractSignalization::DeserializeLanguageCode(data).toLower()) != _only_countries.end()) &&
+            (_only_regions.empty() || _only_regions.find(data[3] >> 2) != _only_regions.end()))
+        {
+            if (_local_offset != INT_MAX) {
+                data[3] = (data[3] & 0xFE) | (_local_offset < 0 ? 0x01 : 0x00);
+                data[4] = EncodeBCD(std::abs(_local_offset) / 60);
+                data[5] = EncodeBCD(std::abs(_local_offset) % 60);
+            }
+            if (_next_offset != INT_MAX) {
+                data[3] = (data[3] & 0xFE) | (_next_offset < 0 ? 0x01 : 0x00);
+                data[11] = EncodeBCD(std::abs(_next_offset) / 60);
+                data[12] = EncodeBCD(std::abs(_next_offset) % 60);
+            }
+            if (_next_change != Time::Epoch) {
+                EncodeMJD(_next_change, data + 6, MJD_SIZE);
+            }
+        }
+        data += 13; size -= 13;
+    }
 }

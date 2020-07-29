@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPCRAnalyzer.h"
 #include "tsEnumeration.h"
@@ -46,11 +45,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class SlicePlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(SlicePlugin);
     public:
         // Implementation of plugin API
         SlicePlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // Event description
@@ -81,16 +81,10 @@ namespace ts {
 
         // Add event in the list from one option.
         void addEvents(const UChar* option, Status status);
-
-        // Inaccessible operations
-        SlicePlugin() = delete;
-        SlicePlugin(const SlicePlugin&) = delete;
-        SlicePlugin& operator=(const SlicePlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(slice, ts::SlicePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"slice", ts::SlicePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -209,7 +203,7 @@ void ts::SlicePlugin::addEvents(const UChar* option, Status status)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::SlicePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::SlicePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Feed PCR analyzer if necessary
     if (_use_time && !_ignore_pcr) {

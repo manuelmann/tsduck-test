@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@
 //----------------------------------------------------------------------------
 
 #include "tsMain.h"
+#include "tsDuckContext.h"
 #include "tsTime.h"
 #include "tsSectionFile.h"
 #include "tsTablesDisplay.h"
@@ -40,7 +41,9 @@
 #include "tsCASFamily.h"
 #include "tsSection.h"
 #include "tsSysUtils.h"
+#include "tsPagerArgs.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 // With static link, enforce a reference to MPEG/DVB structures.
 #if defined(TSDUCK_STATIC_LIBRARY)
@@ -53,27 +56,43 @@ const ts::StaticReferencesDVB dependenciesForStaticLib;
 //  Command line options
 //----------------------------------------------------------------------------
 
-struct Options: public ts::Args
-{
-    Options(int argc, char *argv[]);
+namespace {
+    class Options: public ts::Args
+    {
+        TS_NOBUILD_NOCOPY(Options);
+    public:
+        Options(int argc, char *argv[]);
 
-    ts::UStringVector     infiles;           // Input file names
-    ts::TablesDisplayArgs display;           // Options about displaying tables
-    ts::UDPReceiver       udp;               // Options about receiving UDP tables
-    size_t                max_tables;        // Max number of tables to dump.
-    size_t                max_invalid_udp;   // Max number of invalid UDP messages before giving up.
-    bool                  no_encapsulation;  // Raw sections in UDP messages.
-};
+        ts::DuckContext   duck;              // TSDuck execution context.
+        ts::TablesDisplay display;           // Options about displaying tables
+        ts::PagerArgs     pager;             // Output paging options.
+        ts::UDPReceiver   udp;               // Options about receiving UDP tables
+        ts::UStringVector infiles;           // Input file names
+        size_t            max_tables;        // Max number of tables to dump.
+        size_t            max_invalid_udp;   // Max number of invalid UDP messages before giving up.
+        bool              no_encapsulation;  // Raw sections in UDP messages.
+    };
+}
 
 Options::Options(int argc, char *argv[]) :
     Args(u"Dump PSI/SI tables, as saved by tstables", u"[options] [filename ...]"),
-    infiles(),
-    display(),
+    duck(this),
+    display(duck),
+    pager(true, true),
     udp(*this, false, false),
+    infiles(),
     max_tables(0),
     max_invalid_udp(16),
     no_encapsulation(false)
 {
+    duck.defineArgsForCAS(*this);
+    duck.defineArgsForPDS(*this);
+    duck.defineArgsForStandards(*this);
+    duck.defineArgsForCharset(*this);
+    pager.defineArgs(*this);
+    display.defineArgs(*this);
+    udp.defineArgs(*this);
+
     option(u"", 0, STRING);
     help(u"",
          u"Input binary section file. Several files can be specified. By default, without "
@@ -91,15 +110,14 @@ Options::Options(int argc, char *argv[]) :
          u"With --ip-udp, receive the tables as raw binary messages in UDP packets. "
          u"By default, the tables are formatted into TLV messages.");
 
-    // Additional options for display tables and to receive from UDP.
-    display.defineOptions(*this);
-    udp.defineOptions(*this);
-
     analyze(argc, argv);
 
+    duck.loadArgs(*this);
+    pager.loadArgs(duck, *this);
+    display.loadArgs(duck, *this);
+    udp.loadArgs(duck, *this);
+
     getValues(infiles, u"");
-    display.load(*this);
-    udp.load(*this);
     max_tables = intValue<size_t>(u"max-tables", std::numeric_limits<size_t>::max());
     no_encapsulation = present(u"no-encapsulation");
 
@@ -115,69 +133,73 @@ Options::Options(int argc, char *argv[]) :
 //  Dump sections from UDP. Return true on success.
 //----------------------------------------------------------------------------
 
-bool DumpUDP(Options& opt)
-{
-    // Initialize UDP receiver.
-    if (!opt.udp.open(opt)) {
-        return false;
-    }
+namespace {
+    bool DumpUDP(Options& opt)
+    {
+        // Initialize UDP receiver.
+        if (!opt.udp.open(opt)) {
+            return false;
+        }
 
-    bool ok = true;
-    size_t invalid_msg = 0;
-    ts::SocketAddress sender;
-    ts::SocketAddress destination;
-    ts::ByteBlock packet(ts::IP_MAX_PACKET_SIZE);
-    ts::TablesDisplay display(opt.display, opt);
-    ts::Time timestamp;
-    ts::SectionPtrVector sections;
+        bool ok = true;
+        size_t invalid_msg = 0;
+        ts::SocketAddress sender;
+        ts::SocketAddress destination;
+        ts::ByteBlock packet(ts::IP_MAX_PACKET_SIZE);
+        ts::Time timestamp;
+        ts::SectionPtrVector sections;
 
-    // Receive UDP packets.
-    while (ok && opt.max_tables > 0) {
+        // Redirect display on pager process or stdout only.
+        opt.duck.setOutput(&opt.pager.output(opt), false);
 
-        // Wait for a UDP message
-        size_t insize = 0;
-        ok = opt.udp.receive(packet.data(), packet.size(), insize, sender, destination, nullptr, opt);
+        // Receive UDP packets.
+        while (ok && opt.max_tables > 0) {
 
-        // Check packet.
-        assert(insize <= packet.size());
-        if (ok) {
-            // Analyze sections in the packet.
-            if (ts::TablesLogger::AnalyzeUDPMessage(packet.data(), insize, opt.no_encapsulation, sections, timestamp)) {
+            // Wait for a UDP message
+            size_t insize = 0;
+            ok = opt.udp.receive(packet.data(), packet.size(), insize, sender, destination, nullptr, opt);
 
-                // Valid message, reset the number of consecutive invalid messages.
-                invalid_msg = 0;
+            // Check packet.
+            assert(insize <= packet.size());
+            if (ok) {
+                // Analyze sections in the packet.
+                if (ts::TablesLogger::AnalyzeUDPMessage(packet.data(), insize, opt.no_encapsulation, sections, timestamp)) {
 
-                // Check if a complete table is available.
-                ts::BinaryTable table(sections, false, false);
-                if (table.isValid()) {
-                    // Complete table available, dump as a table.
-                    display.displayTable(table) << std::endl;
-                    opt.max_tables--;
-                }
-                else {
-                    // Complete table not available, dump as individual sections.
-                    for (ts::SectionPtrVector::const_iterator it = sections.begin(); opt.max_tables > 0 && it != sections.end(); ++it) {
-                        if (!it->isNull()) {
-                            display.displaySection(**it) << std::endl;
-                            opt.max_tables--;
+                    // Valid message, reset the number of consecutive invalid messages.
+                    invalid_msg = 0;
+
+                    // Check if a complete table is available.
+                    ts::BinaryTable table(sections, false, false);
+                    if (table.isValid()) {
+                        // Complete table available, dump as a table.
+                        opt.display.displayTable(table) << std::endl;
+                        opt.max_tables--;
+                    }
+                    else {
+                        // Complete table not available, dump as individual sections.
+                        for (ts::SectionPtrVector::const_iterator it = sections.begin(); opt.max_tables > 0 && it != sections.end(); ++it) {
+                            if (!it->isNull()) {
+                                opt.display.displaySection(**it) << std::endl;
+                                opt.max_tables--;
+                            }
                         }
                     }
                 }
-            }
-            else {
-                // Cannot analyze UDP message, invalid message.
-                opt.error(u"invalid section in UDP packet (%s)", {opt.no_encapsulation ? u"raw sections, no encapsulation" : u"TLV messages"});
-                if (++invalid_msg >= opt.max_invalid_udp) {
-                    opt.error(u"received too many consecutive invalid messages, giving up");
-                    ok = false;
+                else {
+                    // Cannot analyze UDP message, invalid message.
+                    opt.error(u"invalid section in UDP packet (%s)", {opt.no_encapsulation ? u"raw sections, no encapsulation" : u"TLV messages"});
+                    if (++invalid_msg >= opt.max_invalid_udp) {
+                        opt.error(u"received too many consecutive invalid messages, giving up");
+                        ok = false;
+                    }
                 }
             }
         }
-    }
 
-    // Terminate UDP reception.
-    ok = opt.udp.close(opt) && ok;
-    return ok;
+        // Terminate UDP reception.
+        ok = opt.udp.close(opt) && ok;
+        return ok;
+    }
 }
 
 
@@ -185,37 +207,38 @@ bool DumpUDP(Options& opt)
 //  Dump sections in a file. Return true on success.
 //----------------------------------------------------------------------------
 
-bool DumpFile(Options& opt, const ts::UString& file_name)
-{
-    // Report file name in case of multiple files
-    if (opt.verbose() && opt.infiles.size() > 1) {
-        std::cout << "* File: " << file_name << std::endl << std::endl;
-    }
-
-    // Load all sections
-    bool ok = false;
-    ts::SectionFile file;
-    file.setDefaultCharset(opt.display.default_charset);
-
-    if (file_name.empty()) {
-        // no input file specified, use standard input
-        SetBinaryModeStdin(opt);
-        ok = file.loadBinary(std::cin, opt);
-    }
-    else {
-        ok = file.loadBinary(file_name, opt);
-    }
-
-    if (ok) {
-        // Display all sections.
-        ts::TablesDisplay display(opt.display, opt);
-        for (ts::SectionPtrVector::const_iterator it = file.sections().begin(); opt.max_tables > 0 && it != file.sections().end(); ++it) {
-            display.displaySection(**it) << std::endl;
-            opt.max_tables--;
+namespace {
+    bool DumpFile(Options& opt, const ts::UString& file_name)
+    {
+        // Report file name in case of multiple files
+        if (opt.verbose() && opt.infiles.size() > 1) {
+            opt.pager.output(opt) << "* File: " << file_name << std::endl << std::endl;
         }
-    }
 
-    return ok;
+        // Load all sections
+        bool ok = false;
+        ts::SectionFile file(opt.duck);
+
+        if (file_name.empty()) {
+            // no input file specified, use standard input
+            SetBinaryModeStdin(opt);
+            ok = file.loadBinary(std::cin, opt);
+        }
+        else {
+            ok = file.loadBinary(file_name, opt);
+        }
+
+        if (ok) {
+            // Display all sections.
+            opt.duck.setOutput(&opt.pager.output(opt), false);
+            for (ts::SectionPtrVector::const_iterator it = file.sections().begin(); opt.max_tables > 0 && it != file.sections().end(); ++it) {
+                opt.display.displaySection(**it) << std::endl;
+                opt.max_tables--;
+            }
+        }
+
+        return ok;
+    }
 }
 
 
@@ -230,7 +253,7 @@ int MainCode(int argc, char *argv[])
     bool ok = true;
 
     // Dump files or network packets.
-    std::cout << std::endl;
+    opt.pager.output(opt) << std::endl;
     if (opt.udp.receiverSpecified()) {
         ok = DumpUDP(opt);
     }
@@ -238,12 +261,10 @@ int MainCode(int argc, char *argv[])
         ok = DumpFile(opt, u"");
     }
     else {
-        for (ts::UStringVector::const_iterator it = opt.infiles.begin(); it != opt.infiles.end(); ++it) {
+        for (auto it = opt.infiles.begin(); it != opt.infiles.end(); ++it) {
             ok = DumpFile(opt, *it) && ok;
         }
     }
 
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
-
-TS_MAIN(MainCode)

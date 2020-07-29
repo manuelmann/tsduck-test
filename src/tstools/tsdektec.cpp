@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,10 @@
 #include "tsMain.h"
 #include "tsDektecControl.h"
 TSDUCK_SOURCE;
+TS_MAIN(MainCode);
 
 int MainCode(int argc, char *argv[])
 {
     ts::DektecControl opt(argc, argv);
     return opt.execute();
 }
-
-TS_MAIN(MainCode)

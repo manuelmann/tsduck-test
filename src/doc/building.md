@@ -10,105 +10,69 @@ on Windows and Linux. macOS can only support files and IP for TS input and outpu
 
 ## Windows {#reqwindows}
 
-- Visual Studio 2017 Community Edition. This is the free version of Visual Studio.
-  If can be downloaded [here](https://www.visualstudio.com/downloads/). This link
-  allows the download of the latest version of Visual Studio but offers no way to
-  download a specific previous version.
+First, install Visual Studio Community Edition.
+This is the free version of Visual Studio.
+It can be downloaded [here](https://www.visualstudio.com/downloads/).
+If you already have Visual Studio Enterprise Edition (the commercial version),
+it is fine, no need to install the Community Edition.
 
-- CppUnit binary libraries. Download [here](https://sourceforge.net/projects/cppunit-msvc/files/).
+Then, execute the PowerShell script `build\install-prerequisites.ps1`.
+It downloads and installs the requested packages which are necessary
+to build TSDuck on Windows.
 
-- Doxygen for Windows. Download [here](http://www.doxygen.org/download.html).
+If you prefer to collect the various installers yourself, follow the links to
+[NSIS downloads](http://nsis.sourceforge.net/Download),
+[SRT downloads](https://github.com/tsduck/srt-win-installer/releases/latest),
+[DTAPI downloads](https://www.dektec.com/downloads/SDK),
+[Doxygen downloads](http://www.doxygen.org/download.html) and
+[Graphviz downloads](https://graphviz.gitlab.io/_pages/Download/Download_windows.html).
 
-- Graphviz for Windows (used by Doxygen to generate graphs and diagrams).
-  Download [here](http://www.graphviz.org/Download_windows.php).
+## Linux and macOS {#reqfedora}
 
-- NSIS, the NullSoft Scriptable Install System.
-  Download [here](http://nsis.sourceforge.net/Download).
-  Note that TSDuck is usually built with
-  [NSIS Version 2.46](https://sourceforge.net/projects/nsis/files/NSIS%202/2.46/nsis-2.46-setup.exe/download).
+Execute the shell-script `build/install-prerequisites.sh`.
+It downloads and installs the requested packages which are necessary
+to build TSDuck. The list of packages and how to install them depend
+on the operating system distribution and version.
 
-- Optional Dektec Windows SDK (DTAPI): Execute the PowerShell script `dektec\Download-Install-Dtapi.ps1`.
-  It downloads and installs the Dektec Windows SDK from the Dektec site.
-  Alternatively, you may download it [here](http://www.dektec.com/products/SDK/DTAPI/Downloads/WinSDK.zip).
-  TSDuck project files will detect DTAPI automatically. See the Visual Studio property
-  file `build\msvc2017\msvc-use-dtapi.props` for details.
+Currently, the script supports the following operating systems:
+- macOS
+- Ubuntu
+- Debian
+- Raspbian (Debian for Raspberry Pi)
+- Fedora
+- Red Hat Enterprise Linux
+- CentOS
+- Arch Linux
+- Alpine Linux
 
-## Fedora {#reqfedora}
+Dektec DTAPI: The command `make` at the top level will automatically
+download the LinuxSDK from the Dektec site. See `dektec/Makefile` for details.
+There is no manual setup for DTAPI on Linux.
 
-- Setup for a TSDuck native build:
-~~~~
-dnf install gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pcsc-lite-devel cppunit-devel libcurl libcurl-devel rpmdevtools
-~~~~
-
-- Setup to build 32-bit TSDuck on 64-bit system (command `make m32`):
-~~~~
-dnf install glibc-devel.i686 libstdc++-devel.i686 pcsc-lite-devel.i686 cppunit-devel.i686 libcurl-devel.i686
-~~~~
-
-## Red Hat Entreprise Linux, CentOS {#reqrhel}
-
-- Setup for a TSDuck native build:
-~~~~
-yum install gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pcsc-lite-devel cppunit-devel libcurl libcurl-devel rpmdevtools
-~~~~
-
-- Setup to build 32-bit TSDuck on 64-bit system (command `make m32`):
-~~~~
-yum install glibc-devel.i686 libstdc++-devel.i686 pcsc-lite-devel.i686 cppunit-devel.i686 libcurl-devel.i686
-~~~~
-
-## Ubuntu, Debian, Raspbian {#requbuntu}
-
-- Setup for a TSDuck native build:
-~~~~
-apt-get install g++ dpkg-dev doxygen dos2unix graphviz curl pcscd libpcsclite-dev libcppunit-dev libcurl3 libcurl3-dev
-~~~~
-
-- Starting with Ubuntu 18.04, `libcurl3` has been replaced by `libcurl4` and the installation commmand becomes:
-~~~~
-apt-get install g++ dpkg-dev doxygen dos2unix graphviz curl pcscd libpcsclite-dev libcppunit-dev libcurl4 libcurl4-openssl-dev
-~~~~
-
-- It is not possible to build 32-bit TSDuck on 64-bit Ubuntu system (command `make m32`) because
-  there is no 32-bit cross-compiled package for pcsc and cppunit on Ubuntu 64-bit.
-
-## All Linux distros {#reqlinux}
-
-- Optional Dektec DTAPI: The command `make` at the top level will automatically
-  download the LinuxSDK from the Dektec site. See `dektec/Makefile` for details.
-
-## macOS {#reqmac}
-
-- Install the Xcode command line utilities (in other words, the _clang_ compiler suite):
-~~~~
-xcode-select --install
-~~~~
-
-- Install the [Homebrew](https://brew.sh/) package manager:
-~~~~
-ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-~~~~
-
-- Install common open source tools using Homebrew:
-~~~~
-brew install pcsc-lite cppunit doxygen graphviz gnu-sed grep
-~~~~
+But note that the Dektec DTAPI is available only for Linux distros on Intel CPU's
+with the GNU libc. Non-Intel systems (for instance ARM-based devices such as
+Raspberry Pi) cannot use Dektec devices. Similarly, Intel-based distros using
+a non-standard libc (for instance Alpine Linux which uses musl libc) cannot use Dektec
+devices either.
 
 # Building the TSDuck binaries {#buildbin}
 
 ## Windows {#buildwindows}
 
-Execute the PowerShell script `build\Build.ps1`. The TSDuck binaries, executables and
-DLL's, are built in directories `msvc2017\Release-Win32` and `msvc2017\Release-x64`
+Execute the PowerShell script `build\build.ps1`. The TSDuck binaries, executables and
+DLL's, are built in directories `bin\Release-Win32` and `bin\Release-x64`
 for 32-bit and 64-bit platforms respectively.
 
 ## Linux and macOS {#buildlinux}
 
 Execute the command `make` at top level. The TSDuck binaries, executables and shared
-objects (`.so`), are built in the `src` directory tree in subdirectories `release-i386`
-and `release-x86_64` for 32-bit and 64-bit platforms respectively.
+objects (`.so`), are built in directories `bin/release-i386-<hostname>`,
+`bin/release-x86_64-<hostname>` and `bin/release-arm-<hostname>` for Intel 32-bit,
+64-bit and ARM platforms respectively.
 
 To build a 32-bit version of TSDuck on a 64-bit system, execute the command `make m32`.
+Of course, this works only if your 64-bit system has all required 32-bit development
+tools and libraries.
 
 ### Building without specialized dependencies
 
@@ -120,16 +84,18 @@ but it will report an error when used).
 
 The following `make` variables can be defined:
 
-- `NOTEST`  : No unitary test, remove dependency to `CppUnit`.
+- `NOTEST`  : Do not build unitary tests.
 - `NODTAPI` : No Dektec support, remove dependency to `DTAPI`.
 - `NOCURL`  : No HTTP support, remove dependency to `libcurl`.
 - `NOPCSC`  : No smartcard support, remove dependency to `pcsc-lite`.
+- `NOSRT`   : No SRT (Secure Reliable Transport), remove dependency to `libsrt`.
 - `NOTELETEXT` : No Teletext support, remove teletext handling code.
+- `ASSERTIONS` : Keep assertions in production mode (slower code).
 
 The following command, for instance, builds TSDuck without dependency
-to `CppUnit`, `pcsc-lite`, `libcurl` and Dektec `DTAPI`:
+to `pcsc-lite`, `libcurl` and Dektec `DTAPI`:
 ~~~
-make NOTEST=1 NOPCSC=1 NOCURL=1 NODTAPI=1
+make NOPCSC=1 NOCURL=1 NODTAPI=1
 ~~~
 
 # Building the TSDuck installers {#buildinst}
@@ -143,7 +109,7 @@ into the git repository either.
 
 ## Windows {#instwindows}
 
-Execute the PowerShell script `build\Build-Installer.ps1`.
+Execute the PowerShell script `build\build-installer.ps1`.
 Two installers are built, for 32-bit and 64-bit systems respectively.
 
 ## Fedora, CentOS, Red Hat Entreprise Linux {#instrhel}
@@ -165,7 +131,7 @@ current version of TSDuck is 3.12-745.
 
 | File name                             | Description
 | ------------------------------------- | -----------------------------------------------------
-| TSDduck-3.12-745-src.zip              | Source archive on Windows
+| TSDuck-3.12-745-src.zip               | Source archive on Windows
 | tsduck-3.12-745.tgz                   | Source archive on Linux and macOS
 | tsduck_3.12-745_amd64.deb             | Binary package for 64-bit Ubuntu
 | tsduck_3.12-745_armhf.deb             | Binary package for 32-bit Raspbian (Raspberry Pi)
@@ -226,57 +192,54 @@ testing or debugging.
 ## Windows {#runwindows}
 
 On Windows, the binaries and all plugins are built in a subdirectory named
-`build\msvc2017\<target>-<platform>`. The commands can be run using their
+`bin\<target>-<platform>`. The commands can be run using their
 complete path.
 
 For instance, to run the released 64-bit version of `tsp`, use:
 ~~~~
-D:\tsduck> build\msvc2017\Release-x64\tsp.exe --version
+D:\tsduck> bin\Release-x64\tsp.exe --version
 tsp: TSDuck - The MPEG Transport Stream Toolkit - version 3.12-730
 ~~~~
 
 For other combinations (release vs. debug and 32 vs. 64 bits), the paths
 from the repository root are:
 ~~~~
-build\msvc2017\Release-x64\tsp.exe
-build\msvc2017\Debug-x64\tsp.exe
-build\msvc2017\Release-Win32\tsp.exe
-build\msvc2017\Debug-Win32\tsp.exe
+bin\Release-x64\tsp.exe
+bin\Release-Win32\tsp.exe
+bin\Debug-x64\tsp.exe
+bin\Debug-Win32\tsp.exe
 ~~~~
 
 ## Linux and macOS {#rununix}
 
-On all Unix systems, the binaries, plugins and tests are built in
-subdirectories of their respective source directories. Specifically,
-the tools and plugins are not in the same directory.
+On all Unix systems, the binaries and all plugins are built in a subdirectory
+named `bin\<target>-<platform>-<hostname>`. The commands can be run using their
+complete path.
 
-To run a tool from its build directory, a few environment variables
-shall be defined (including `$PATH`). A shell-script named `setenv.sh`
-is automatically created in each build directory. This script defines
-the appropriate environment for running binaries which are in this
-build directory.
-
-Depending on your target (release vs. debug, 32 bits vs. 64 bits, Intel vs. ARM),
-execute one of:
+For instance, to run the latest build of `tsp` on a Mac system, use:
 ~~~~
-source src/tstools/release-x86_64/setenv.sh
-source src/tstools/debug-x86_64/setenv.sh
-source src/tstools/release-i386/setenv.sh
-source src/tstools/debug-i386/setenv.sh
-source src/tstools/release-arm/setenv.sh
-source src/tstools/debug-arm/setenv.sh
+$ bin/release-x86_64-mymac/tsp --version
+tsp: TSDuck - The MPEG Transport Stream Toolkit - version 3.22-1823
 ~~~~
 
-Note the usage of the `source` command to make sure that the environment
-variables are defined in the current shell.
+Because the binary directory name contains the host name, it is possible to build
+TSDuck using the same shared source tree from various systems or virtual machines.
+All builds will coexist using distinct names under the `bin` subdirectory.
 
-Example:
+For _bash_ users who wish to include the binary directory in the `PATH`, simply
+"source" the script `build/setenv.sh`. Example:
 ~~~~
-$ source src/tstools/release-x86_64/setenv.sh
+$ . build/setenv.sh 
 $ which tsp
-~/tsduck/src/tstools/release-x86_64/tsp
-$ tsp --version
-tsp: TSDuck - The MPEG Transport Stream Toolkit - version 3.12-730
+/Users/devel/tsduck/bin/release-x86_64-mymac/tsp
+~~~~
+
+This script can also be used with option `--display` to display the actual
+path of the binary directory. The output can be used in other scripts
+(including from any other shell than _bash_). Example:
+~~~~
+$ build/setenv.sh --display
+/Users/devel/tsduck/bin/release-x86_64-mymac
 ~~~~
 
 # Cleaning up {#buildcleanup}
@@ -284,7 +247,7 @@ tsp: TSDuck - The MPEG Transport Stream Toolkit - version 3.12-730
 On Windows, to cleanup a repository tree and return to a pristine source state,
 execute the following PowerShell script:
 ~~~~
-build\Cleanup.ps1
+build\cleanup.ps1
 ~~~~
 
 On Linux and macOS, the same cleanup task is achieved using the following command:

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPCRAnalyzer.h"
 TSDUCK_SOURCE;
@@ -48,12 +47,13 @@ TSDUCK_SOURCE;
 namespace ts {
     class PCRBitratePlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(PCRBitratePlugin);
     public:
         // Implementation of plugin API
         PCRBitratePlugin(TSP*);
         virtual bool start() override;
         virtual BitRate getBitrate() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         PCRAnalyzer _pcr_analyzer; // PCR analysis context
@@ -68,17 +68,11 @@ namespace ts {
         // the results are not significantly different. We ignore new results
         // which vary only by less than the following factor.
 
-        static const BitRate REPORT_THRESHOLD = 500000; // 100 b/s on a 50 Mb/s stream
-
-        // Inaccessible operations
-        PCRBitratePlugin() = delete;
-        PCRBitratePlugin(const PCRBitratePlugin&) = delete;
-        PCRBitratePlugin& operator=(const PCRBitratePlugin&) = delete;
+        static constexpr BitRate REPORT_THRESHOLD = 500000; // 100 b/s on a 50 Mb/s stream
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(pcrbitrate, ts::PCRBitratePlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"pcrbitrate", ts::PCRBitratePlugin);
 
 
 //----------------------------------------------------------------------------
@@ -151,7 +145,7 @@ ts::BitRate ts::PCRBitratePlugin::getBitrate()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::PCRBitratePlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::PCRBitratePlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     // Feed the packet into the PCR analyzer.
 
@@ -165,7 +159,7 @@ ts::ProcessorPlugin::Status ts::PCRBitratePlugin::processPacket(TSPacket& pkt, b
             // New bitrate is significantly different, signal it.
             tsp->verbose(u"new bitrate from %s analysis: %'d b/s", {_pcr_name, new_bitrate});
             _bitrate = new_bitrate;
-            bitrate_changed = true;
+            pkt_data.setBitrateChanged(true);
         }
     }
     return TSP_OK;

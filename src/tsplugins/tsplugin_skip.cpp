@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 TSDUCK_SOURCE;
 
@@ -44,25 +43,20 @@ TSDUCK_SOURCE;
 namespace ts {
     class SkipPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(SkipPlugin);
     public:
         // Implementation of plugin API
         SkipPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         PacketCounter skip_count;
         bool          use_stuffing;
-
-        // Inaccessible operations
-        SkipPlugin() = delete;
-        SkipPlugin(const SkipPlugin&) = delete;
-        SkipPlugin& operator=(const SkipPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(skip, ts::SkipPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"skip", ts::SkipPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -98,7 +92,7 @@ bool ts::SkipPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::SkipPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::SkipPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     if (skip_count == 0) {
         return TSP_OK;

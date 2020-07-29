@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
+#include "tsContinuityAnalyzer.h"
 TSDUCK_SOURCE;
 
 
@@ -44,30 +44,24 @@ TSDUCK_SOURCE;
 namespace ts {
     class ContinuityPlugin: public ProcessorPlugin
     {
+        TS_NOBUILD_NOCOPY(ContinuityPlugin);
     public:
         // Implementation of plugin API
         ContinuityPlugin(TSP*);
+        virtual bool getOptions() override;
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
-        UString       _tag;             // Message tag
-        bool          _fix;             // Fix incorrect continuity counters
-        int           _log_level;       // Log level for discontinuity messages
-        PacketCounter _packet_count;    // TS packet count
-        PIDSet        _pids;            // PID values to check or fix
-        uint8_t       _oldCC[PID_MAX];  // Continuity counter by PID (input)
-        uint8_t       _newCC[PID_MAX];  // Continuity counter by PID (output)
-
-        // Inaccessible operations
-        ContinuityPlugin() = delete;
-        ContinuityPlugin(const ContinuityPlugin&) = delete;
-        ContinuityPlugin& operator=(const ContinuityPlugin&) = delete;
+        UString            _tag;          // Message tag
+        bool               _fix;          // Fix incorrect continuity counters
+        int                _log_level;    // Log level for discontinuity messages
+        PIDSet             _pids;         // PID values to check or fix
+        ContinuityAnalyzer _cc_analyzer;  // Continuity counters analyzer
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(continuity, ts::ContinuityPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"continuity", ts::ContinuityPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -79,8 +73,8 @@ ts::ContinuityPlugin::ContinuityPlugin(TSP* tsp_) :
     _tag(),
     _fix(),
     _log_level(Severity::Info),
-    _packet_count(0),
-    _pids()
+    _pids(),
+    _cc_analyzer(NoPID, tsp)
 {
     option(u"fix", 'f');
     help(u"fix",
@@ -100,10 +94,10 @@ ts::ContinuityPlugin::ContinuityPlugin(TSP* tsp_) :
 
 
 //----------------------------------------------------------------------------
-// Start method
+// Get options method
 //----------------------------------------------------------------------------
 
-bool ts::ContinuityPlugin::start()
+bool ts::ContinuityPlugin::getOptions()
 {
     // Command line arguments
     getIntValues(_pids, u"pid", true);
@@ -120,10 +114,22 @@ bool ts::ContinuityPlugin::start()
     // With --fix, this is only a verbose message.
     _log_level = _fix ? Severity::Verbose : Severity::Info;
 
-    // Preset continuity counters to invalid values
-    ::memset(_oldCC, 0xFF, sizeof(_oldCC));
-    ::memset(_newCC, 0xFF, sizeof(_newCC));
+    return true;
+}
 
+
+//----------------------------------------------------------------------------
+// Start method
+//----------------------------------------------------------------------------
+
+bool ts::ContinuityPlugin::start()
+{
+    _cc_analyzer.reset();
+    _cc_analyzer.setPIDFilter(_pids);
+    _cc_analyzer.setDisplay(true);
+    _cc_analyzer.setMessagePrefix(_tag);
+    _cc_analyzer.setMessageSeverity(_log_level);
+    _cc_analyzer.setFix(_fix);
     return true;
 }
 
@@ -132,31 +138,8 @@ bool ts::ContinuityPlugin::start()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::ContinuityPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::ContinuityPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
-    const PID pid = pkt.getPID();
-
-    // Check selected PID's only.
-    if (_pids.test(pid)) {
-
-        // Adjacent identical CC on a PID are allowed and indicate a duplicated packet.
-        const uint8_t cc = pkt.getCC();
-        const bool duplicated = _oldCC[pid] == cc;
-
-        // Check if the CC is incorrect.
-        if (_oldCC[pid] < 16 && !duplicated && ((_oldCC[pid] + 1) & 0x0F) != cc) {
-            tsp->log(_log_level, u"%sTS: %'d, PID: 0x%X, missing: %d", {_tag, _packet_count, pid, (cc < _oldCC[pid] ? 16 : 0) + cc - _oldCC[pid] - 1});
-        }
-
-        // Fix CC if requested. Fixes are propagated all along the PID.
-        if (_fix && _newCC[pid] < 16) {
-            pkt.setCC(duplicated ? _newCC[pid] : ((_newCC[pid] + 1) & 0x0F));
-        }
-
-        _oldCC[pid] = cc;
-        _newCC[pid] = pkt.getCC();
-    }
-
-    _packet_count++;
+    _cc_analyzer.feedPacket(pkt);
     return TSP_OK;
 }

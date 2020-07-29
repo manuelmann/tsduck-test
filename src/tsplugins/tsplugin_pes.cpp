@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,12 +32,11 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsPESDemux.h"
 #include "tsAVCSequenceParameterSet.h"
 #include "tsNames.h"
-#include "tsMemoryUtils.h"
+#include "tsMemory.h"
 TSDUCK_SOURCE;
 
 
@@ -48,12 +47,13 @@ TSDUCK_SOURCE;
 namespace ts {
     class PESPlugin: public ProcessorPlugin, private PESHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(PESPlugin);
     public:
         // Implementation of plugin API
         PESPlugin(TSP*);
         virtual bool start() override;
         virtual bool stop() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         // PESPlugin private members
@@ -91,16 +91,10 @@ namespace ts {
         virtual void handleNewAVCAttributes (PESDemux&, const PESPacket&, const AVCAttributes&) override;
         virtual void handleNewAudioAttributes (PESDemux&, const PESPacket&, const AudioAttributes&) override;
         virtual void handleNewAC3Attributes (PESDemux&, const PESPacket&, const AC3Attributes&) override;
-
-        // Inaccessible operations
-        PESPlugin() = delete;
-        PESPlugin(const PESPlugin&) = delete;
-        PESPlugin& operator=(const PESPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(pes, ts::PESPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"pes", ts::PESPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -129,7 +123,7 @@ ts::PESPlugin::PESPlugin(TSP* tsp_) :
     _hexa_bpl(0),
     _min_payload(0),
     _max_payload(0),
-    _demux(this)
+    _demux(duck, this)
 {
     option(u"audio-attributes", 'a');
     help(u"audio-attributes", u"Display audio attributes.");
@@ -205,7 +199,7 @@ ts::PESPlugin::PESPlugin(TSP* tsp_) :
     help(u"start-code", u"Dump all start codes in PES packet payload.");
 
     option(u"trace-packets", 't');
-    help(u"trace-packets", u"race all PES packets.");
+    help(u"trace-packets", u"Trace all PES packets.");
 
     option(u"sei-type", 0, UINT32);
     help(u"sei-type",
@@ -343,7 +337,7 @@ bool ts::PESPlugin::stop()
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::PESPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::PESPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     _demux.feedPacket(pkt);
     return _abort ? TSP_END : TSP_OK;
@@ -380,9 +374,15 @@ void ts::PESPlugin::handlePESPacket(PESDemux&, const PESPacket& pkt)
 
     // Report packet description
     if (_trace_packets) {
-        out << UString::Format(u"* PID 0x%X, stream_id %s, size: %d bytes (header: %d, payload: %d)",
-                               {pkt.getSourcePID(), names::StreamId(pkt.getStreamId(), names::FIRST), pkt.size(), pkt.headerSize(), pkt.payloadSize()})
-            << std::endl;
+        UString line(UString::Format(u"PID 0x%X, stream_id %s, size: %d bytes (header: %d, payload: %d)",
+                                     {pkt.getSourcePID(),
+                                      names::StreamId(pkt.getStreamId(), names::FIRST),
+                                      pkt.size(), pkt.headerSize(), pkt.payloadSize()}));
+        const size_t spurious = pkt.spuriousDataSize();
+        if (spurious > 0) {
+            line.append(UString::Format(u", %d spurious trailing bytes", {spurious}));
+        }
+        out << "* " << line << std::endl;
         if (lastDump(out)) {
             return;
         }
@@ -409,7 +409,7 @@ void ts::PESPlugin::handlePESPacket(PESDemux&, const PESPacket& pkt)
 
     // Check that video packets start with either 00 00 01 (ISO 11172-2, MPEG-1, or ISO 13818-2, MPEG-2)
     // or 00 00 00 .. 01 (ISO 14496-10, MPEG-4 AVC). Don't know how ISO 14496-2 (MPEG-4 video) should start.
-    if (IsVideoSID(pkt.getStreamId()) && !pkt.isMPEG2Video() && !pkt.isAVC()) {
+    if (IsVideoSID(pkt.getStreamId()) && !pkt.isMPEG2Video() && !pkt.isAVC() && !pkt.isHEVC()) {
         out << UString::Format(u"WARNING: PID 0x%X, invalid start of video PES payload: ", {pkt.getSourcePID()})
             << UString::Dump(pkt.payload(), std::min<size_t> (8, pkt.payloadSize()), UString::SINGLE_LINE)
             << std::endl;
@@ -532,7 +532,7 @@ void ts::PESPlugin::handleSEI(PESDemux& demux, const PESPacket& pkt, uint32_t se
 
     // Now display the SEI.
     std::ostream& out(_outfile.is_open() ? _outfile : std::cout);
-    out << UString::Format(u"* PID 0x%X, SEI type %s", {pkt.getSourcePID(), DVBNameFromSection(u"AVCSEIType", sei_type, names::FIRST)})
+    out << UString::Format(u"* PID 0x%X, SEI type %s", {pkt.getSourcePID(), NameFromSection(u"AVCSEIType", sei_type, names::FIRST)})
         << std::endl
         << UString::Format(u"  Offset in PES payload: %d, size: %d bytes", {offset, size})
         << std::endl;

@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------------
 //
 // TSDuck - The MPEG Transport Stream Toolkit
-// Copyright (c) 2005-2018, Thierry Lelegard
+// Copyright (c) 2005-2020, Thierry Lelegard
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,9 +32,9 @@
 //
 //----------------------------------------------------------------------------
 
-#include "tsPlugin.h"
 #include "tsPluginRepository.h"
 #include "tsCASSelectionArgs.h"
+#include "tsBinaryTable.h"
 #include "tsSectionDemux.h"
 #include "tsDescriptorList.h"
 #include "tsPIDOperator.h"
@@ -49,11 +49,12 @@ TSDUCK_SOURCE;
 namespace ts {
     class SIFilterPlugin: public ProcessorPlugin, private TableHandlerInterface
     {
+        TS_NOBUILD_NOCOPY(SIFilterPlugin);
     public:
         // Implementation of plugin API
         SIFilterPlugin(TSP*);
         virtual bool start() override;
-        virtual Status processPacket(TSPacket&, bool&, bool&) override;
+        virtual Status processPacket(TSPacket&, TSPacketMetadata&) override;
 
     private:
         CASSelectionArgs _cas_args;    // CAS selection
@@ -67,16 +68,10 @@ namespace ts {
 
         // Process specific tables
         void processPAT(const PAT&);
-
-        // Inaccessible operations
-        SIFilterPlugin() = delete;
-        SIFilterPlugin(const SIFilterPlugin&) = delete;
-        SIFilterPlugin& operator=(const SIFilterPlugin&) = delete;
     };
 }
 
-TSPLUGIN_DECLARE_VERSION
-TSPLUGIN_DECLARE_PROCESSOR(sifilter, ts::SIFilterPlugin)
+TS_REGISTER_PROCESSOR_PLUGIN(u"sifilter", ts::SIFilterPlugin);
 
 
 //----------------------------------------------------------------------------
@@ -89,7 +84,7 @@ ts::SIFilterPlugin::SIFilterPlugin(TSP* tsp_) :
     _pass_pmt(false),
     _drop_status(TSP_DROP),
     _pass_pids(),
-    _demux(this)
+    _demux(duck, this)
 {
     option(u"bat");
     help(u"bat", u"Extract PID 0x0011 (SDT/BAT).");
@@ -130,7 +125,7 @@ ts::SIFilterPlugin::SIFilterPlugin(TSP* tsp_) :
     help(u"tsdt", u"Extract PID 0x0002 (TSDT).");
 
     // CAS filtering options.
-    _cas_args.defineOptions(*this);
+    _cas_args.defineArgs(*this);
 }
 
 
@@ -141,7 +136,7 @@ ts::SIFilterPlugin::SIFilterPlugin(TSP* tsp_) :
 bool ts::SIFilterPlugin::start()
 {
     // Get command line arguments
-    _cas_args.load(*this);
+    _cas_args.loadArgs(duck, *this);
     _pass_pmt = present(u"pmt");
     _drop_status = present(u"stuffing") ? TSP_NULL : TSP_DROP;
 
@@ -197,7 +192,7 @@ void ts::SIFilterPlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
     switch (table.tableId()) {
 
         case TID_PAT: {
-            PAT pat(table);
+            PAT pat(duck, table);
             if (pat.isValid()) {
                 processPAT(pat);
             }
@@ -205,7 +200,7 @@ void ts::SIFilterPlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
         }
 
         case TID_CAT: {
-            CAT cat(table);
+            CAT cat(duck, table);
             if (cat.isValid()) {
                 _cas_args.addMatchingPIDs(_pass_pids, cat, *tsp);
             }
@@ -213,7 +208,7 @@ void ts::SIFilterPlugin::handleTable(SectionDemux& demux, const BinaryTable& tab
         }
 
         case TID_PMT: {
-            PMT pmt(table);
+            PMT pmt(duck, table);
             if (pmt.isValid()) {
                 _cas_args.addMatchingPIDs(_pass_pids, pmt, *tsp);
             }
@@ -251,7 +246,7 @@ void ts::SIFilterPlugin::processPAT(const PAT& pat)
 // Packet processing method
 //----------------------------------------------------------------------------
 
-ts::ProcessorPlugin::Status ts::SIFilterPlugin::processPacket(TSPacket& pkt, bool& flush, bool& bitrate_changed)
+ts::ProcessorPlugin::Status ts::SIFilterPlugin::processPacket(TSPacket& pkt, TSPacketMetadata& pkt_data)
 {
     _demux.feedPacket(pkt);
     return _pass_pids[pkt.getPID()] ? TSP_OK : _drop_status;

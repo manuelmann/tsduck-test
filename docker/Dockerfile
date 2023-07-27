@@ -2,7 +2,7 @@ FROM fedora:latest AS builder
 MAINTAINER Manuel
 RUN dnf upgrade -y
 RUN dnf install -y git make gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pcsc-lite-devel cppunit-devel libcurl libcurl-devel rpmdevtools
-RUN git clone https://github.com/tsduck/tsduck.git && cd tsduck-test && make NOTEST=1 NOPCSC=1 NOCURL=1 NODTAPI=1 NOTELETEXT=1
+RUN git clone https://github.com/tsduck/tsduck.git && cd tsduck && make NOTEST=1 NOPCSC=1 NOCURL=1 NODTAPI=1 NOTELETEXT=1
 
 FROM fedora:latest
 RUN dnf install -y bash

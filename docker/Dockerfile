@@ -1,7 +1,7 @@
 FROM fedora:latest AS builder
 MAINTAINER Manuel
 RUN dnf upgrade -y
-RUN dnf install -y git make gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pcsc-lite-devel cppunit-devel libcurl libcurl-devel libsrtp librist rpmdevtools
+RUN dnf install -y git make gcc-c++ doxygen dos2unix graphviz curl pcsc-tools pcsc-lite-devel cppunit-devel libcurl libcurl-devel libsrtp librist rpmdevtools locales
 RUN git clone https://github.com/tsduck/tsduck.git && cd tsduck && sh ./script/intall-prerequisites.sh
 RUN make NOTEST=1 NODEKTEC=1 NOPCSC=1 NOCURL=1 NOHIDES=1 NOEDITLINE=1 NOHWACCEL=1
 

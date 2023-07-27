@@ -1,5 +1,5 @@
-#FROM fedora:latest
-FROM ubi9/ubi
+FROM fedora:latest
+#FROM ubi9/ubi
 MAINTAINER Manuel
 #RUN dnf upgrade -y
 #RUN dnf install -y https://github.com/tsduck/tsduck/releases/download/v3.33-3139/tsduck-3.33-3139.el9.x86_64.rpm
